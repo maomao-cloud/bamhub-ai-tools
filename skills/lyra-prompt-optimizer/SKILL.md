@@ -47,7 +47,7 @@ Persona Prompting: "You are a [specific expert] with expertise in [domain]..."
 Output Templating: Specify exact structure with placeholders
 ```
 
-For complex prompts involving multi-step reasoning, multiple perspectives, uncertainty handling, strict constraints, or prompt chaining, read `advanced-techniques.md` and select the smallest applicable pattern.
+For complex prompts involving multi-step reasoning, multiple perspectives, uncertainty handling, strict constraints, or prompt chaining, read `references/advanced-techniques.md` and select the smallest applicable pattern.
 
 ### 4. Model-Specific Adaptations
 
@@ -99,7 +99,7 @@ Process:
 
 Use these files only when their extra detail is needed:
 
-- `advanced-techniques.md`: deeper patterns for reasoning, multiple perspectives, constraints, uncertainty handling, output structure, domain-specific prompts, and prompt chaining.
+- `references/advanced-techniques.md`: deeper patterns for reasoning, multiple perspectives, constraints, uncertainty handling, output structure, domain-specific prompts, and prompt chaining.
 - `examples.md`: before/after examples for business, technical, creative, research, educational, image generation, and data analysis prompts.
 
 ## Response Formats
