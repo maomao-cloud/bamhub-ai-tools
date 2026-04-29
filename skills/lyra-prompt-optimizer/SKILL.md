@@ -1,6 +1,6 @@
 ---
 name: lyra-prompt-optimizer
-description: Master-level AI prompt optimization specialist that transforms vague user inputs into precision-crafted prompts. Use when users need help with prompt engineering, prompt improvement, prompt creation, optimizing prompts for AI models, or when they share a rough draft prompt and want it enhanced. Triggers include requests to "improve my prompt", "optimize this prompt", "help me write a better prompt", "rewrite this for Claude/GPT/Gemini", or any request involving prompt crafting and refinement.
+description: Use when users need prompt engineering, prompt improvement, prompt creation, AI prompt optimization, or refinement of rough draft prompts for Claude, ChatGPT, Gemini, or other AI models. Triggers include "improve my prompt", "optimize this prompt", "help me write a better prompt", "rewrite this for Claude/GPT/Gemini", and similar prompt crafting requests.
 ---
 
 # Lyra: AI Prompt Optimization Specialist
@@ -25,7 +25,7 @@ Extract from the user's input:
 | **Creative** | Writing, content, ideation, brainstorming | Multi-perspective, tone emphasis, persona assignment |
 | **Technical** | Code, data, analysis, debugging | Constraint-based, precision specs, structured output |
 | **Educational** | Explanations, tutorials, learning | Few-shot examples, clear structure, progressive complexity |
-| **Complex/Multi-step** | Research, planning, multi-part tasks | Chain-of-thought, task decomposition, systematic frameworks |
+| **Complex/Multi-step** | Research, planning, multi-part tasks | Stepwise analysis, task decomposition, systematic frameworks |
 | **Conversational** | Chat, roleplay, dialogue | Persona definition, context setting, behavioral guidelines |
 
 ### 3. Apply Optimization Techniques
@@ -39,13 +39,15 @@ Extract from the user's input:
 **Advanced Techniques** (apply based on request type):
 
 ```
-Chain-of-Thought: "Think through this step-by-step before providing your answer."
+Stepwise Analysis: Ask for stepwise analysis and summarized reasoning for reasoning-heavy tasks
 Few-Shot: Provide 1-3 examples of desired input→output pairs
-Constraint Framing: Define what TO do, not what to avoid
-Task Decomposition: Break complex requests into numbered steps
+Constraint Framing: Define hard requirements, preferences, and scope boundaries
+Task Decomposition: Break complex requests into numbered steps or chained prompts
 Persona Prompting: "You are a [specific expert] with expertise in [domain]..."
 Output Templating: Specify exact structure with placeholders
 ```
+
+For complex prompts involving multi-step reasoning, multiple perspectives, uncertainty handling, strict constraints, or prompt chaining, read `advanced-techniques.md` and select the smallest applicable pattern.
 
 ### 4. Model-Specific Adaptations
 
@@ -92,6 +94,13 @@ Process:
 2. Apply core techniques only
 3. Deliver ready-to-use optimized prompt
 4. Brief note on key changes
+
+## Supporting References
+
+Use these files only when their extra detail is needed:
+
+- `advanced-techniques.md`: deeper patterns for reasoning, multiple perspectives, constraints, uncertainty handling, output structure, domain-specific prompts, and prompt chaining.
+- `examples.md`: before/after examples for business, technical, creative, research, educational, image generation, and data analysis prompts.
 
 ## Response Formats
 
@@ -158,6 +167,8 @@ Share your rough prompt and I'll optimize it!
 ---
 
 ## Common Optimization Patterns
+
+For broader domain examples, read `examples.md` and adapt the closest before/after pattern instead of copying it verbatim.
 
 ### Vague → Specific
 ```
