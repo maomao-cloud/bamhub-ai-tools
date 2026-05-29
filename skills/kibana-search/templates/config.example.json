@@ -1,0 +1,29 @@
+{
+  "environments": {
+    "bg_prod_main": {
+      "organization": "bg",
+      "stage": "prod",
+      "account": "main",
+      "auth": {
+        "profile": "bg_prod_main_sso"
+      },
+      "tools": {
+        "kibana": {
+          "baseUrl": "https://kibana.bg.allschool.com",
+          "preferredBackend": "auto",
+          "space": "default",
+          "defaultDataViewId": "f12ae960-16d1-11ec-97d3-31b29b7fe5a5",
+          "defaultColumns": ["level", "message"],
+          "serviceField": "APP_NAME",
+          "levelField": "level",
+          "messageField": "message",
+          "traceIdField": "traceId",
+          "timeField": "@timestamp",
+          "cache": {
+            "dataViewTtlSeconds": 86400
+          }
+        }
+      }
+    }
+  }
+}

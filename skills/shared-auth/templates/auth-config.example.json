@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "bg_prod_main_sso": {
+      "type": "sso_browser",
+      "credentialRef": "bg_prod_main",
+      "loginMode": "auto"
+    }
+  }
+}
