@@ -1,21 +1,23 @@
-# 本地 Kibana 日志查询 CLI 与配套 Skill 设计
+# 单个 Skill 自包含的本地 Kibana 日志查询设计
 
 ## 背景
 
-需要做一个本地 Kibana 查询搜索工具，用于跨环境、跨账号查询日志。工具主要由 AI 调用，但入口应像 `git` 一样是本地 CLI，而不是需要启动常驻服务的 MCP。首个场景是查询线上 Kibana 中某个服务最近一段时间的错误等级日志，例如 `groot-lms-learning-server` 最近 15 小时的 `ERROR` 日志。
+需要做一个本地 Kibana 查询搜索能力，用于跨环境、跨账号查询日志。整体交付形态不是“一个独立安装的外部工具 + 一个引用它的 skill”，而是**一个自包含的 skill**：skill 目录内同时包含说明文档、辅助脚本、配置模板，以及登录、缓存、查询相关逻辑。对外使用体验仍然保持为类似 `git` 的本地命令调用，但这些命令由 skill 内部脚本提供，而不是要求用户单独安装额外工具。
 
-工具需要支持多环境配置、多账号隔离、通用认证逻辑复用、Kibana data view/index pattern 元数据缓存，以及一个配套 skill 来指导 Claude Code 如何调用该 CLI。
+首个场景是查询线上 Kibana 中某个服务最近一段时间的错误等级日志，例如 `groot-lms-learning-server` 最近 15 小时的 `ERROR` 日志。
+
+工具需要支持多环境配置、多账号隔离、通用认证逻辑复用、Kibana data view/index pattern 元数据缓存，以及一个配套 skill 来指导 Claude Code 如何调用这些本地脚本。
 
 ## 目标
 
-- 提供本地 CLI-first 的 Kibana 日志查询工具。
+- 提供一个自包含的本地 skill，内部带有类似 CLI 的脚本入口。
 - 环境名作为完整隔离边界，定位组织、部署环境、账号、认证信息、Kibana 地址和工具配置。
 - 支持通用服务日志查询：`service/app + level + keyword + traceId + time range`。
 - 查询结果返回原始日志内容，由上层 AI 负责分析。
 - 支持 Kibana/ES backend 策略配置：`kibana`、`es`、`auto`。
 - 缓存 Kibana data view/index pattern 元数据，并支持 TTL 与强制刷新。
 - 提供通用 auth 模块，MVP 使用本地明文凭证，后续可替换为钥匙串或加密存储。
-- 新增配套 skill，说明 Claude Code 如何使用该 CLI 查询日志、处理错误和解析 Kibana Discover URL。
+- Skill 文档直接说明 Claude Code 如何调用 skill 目录中的脚本查询日志、处理错误和解析 Kibana Discover URL。
 
 ## 非目标
 
@@ -27,10 +29,17 @@
 
 ## 总体形态
 
-对外提供一个本地 CLI，例如 `kibana-search`：
+整体以一个单独 skill 交付，例如 `skills/kibana-search/`。该目录内包含：
+
+- `SKILL.md`：说明触发场景、参数收集方式、错误恢复方式。
+- `scripts/`：登录、缓存刷新、查询执行等脚本。
+- `templates/`：示例配置模板。
+- `lib/`：如果需要，可放脚本共用的本地实现。
+
+对外仍然保留类似 CLI 的调用体验，例如：
 
 ```bash
-kibana-search logs \
+bash skills/kibana-search/scripts/kibana-search logs \
   --env bg_prod_main \
   --service groot-lms-learning-server \
   --level ERROR \
@@ -38,13 +47,22 @@ kibana-search logs \
   --fields level,message
 ```
 
-AI、脚本和人都通过该命令调用。默认输出适合人阅读的原始日志行；加 `--json` 时输出稳定结构化 JSON，便于 Claude Code 或其他自动化工具解析。
+AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读的原始日志行；加 `--json` 时输出稳定结构化 JSON，便于 Claude Code 或其他自动化工具解析。
 
-配套 skill 位于 `skills/kibana-search/SKILL.md`，只负责编排 CLI 使用方式，不复制查询逻辑。
+这样用户只需要使用这个 skill，不需要额外安装一个独立发布的外部工具。
 
 ## 配置模型
 
-采用单一环境配置文件，环境为第一层隔离边界，工具配置作为环境内的命名空间。示例：
+采用**单一 skill 自管理配置**：配置文件由 `skills/kibana-search/` 约定格式并提供模板，但实际可写配置放在用户本地路径，避免把敏感账号信息提交进仓库。推荐结构：
+
+- 仓库内模板：`skills/kibana-search/templates/config.example.json`
+- 用户本地实际配置：`~/.claude/kibana-search/config.json`
+- 用户本地凭证文件：`~/.claude/kibana-search/credentials.json`
+- 用户本地缓存文件：`~/.claude/kibana-search/cache.json`
+
+这样配置、账号、缓存都仍然是“这个 skill 的一部分”，不会散落到多个独立工具里；同时敏感信息与仓库代码分离。
+
+环境仍然是第一层隔离边界，工具配置作为环境内的命名空间。示例：
 
 ```json
 {
@@ -80,11 +98,23 @@ AI、脚本和人都通过该命令调用。默认输出适合人阅读的原始
 }
 ```
 
-环境名本身可以采用 `组织_环境_账号` 结构，例如 `bg_prod_main`。CLI 必须显式传入 `--env`，并且只能读取该环境下的对应工具配置，避免跨账号、跨环境串用。
+环境名本身可以采用 `组织_环境_账号` 结构，例如 `bg_prod_main`。脚本必须显式传入 `--env`，并且只能读取该环境下的对应工具配置，避免跨账号、跨环境串用。
+
+skill 还需要提供一个初始化入口，例如：
+
+```bash
+bash skills/kibana-search/scripts/kibana-search init
+```
+
+该命令负责：
+
+- 将模板配置复制到 `~/.claude/kibana-search/config.json`
+- 检查必要字段是否已填写
+- 提示用户补充 `baseUrl`、默认 data view、字段映射等信息
 
 ## 认证与凭证
 
-认证逻辑放在通用 auth 模块中，供未来其他本地工具复用。模块接口包括：
+认证逻辑放在 skill 内的通用 auth 模块中，供未来这个 skill 扩展出的其他本地脚本复用。模块接口包括：
 
 - `login`
 - `getCredential`
@@ -92,7 +122,7 @@ AI、脚本和人都通过该命令调用。默认输出适合人阅读的原始
 - `isExpired`
 - `clearCredential`
 
-MVP 使用本地明文凭证文件，便于手动编辑和调试。凭证内容可包含：
+MVP 使用 `~/.claude/kibana-search/credentials.json` 本地明文凭证文件，便于手动编辑和调试。凭证内容可包含：
 
 - cookie
 - bearer token
@@ -104,7 +134,10 @@ MVP 使用本地明文凭证文件，便于手动编辑和调试。凭证内容�
 
 1. 查询前读取当前 `--env` 的凭证。
 2. 如果缺失或过期，返回明确错误并提示登录命令。
-3. 用户执行 `kibana-search auth login --env bg_prod_main`。
+3. 用户执行：
+   ```bash
+   bash skills/kibana-search/scripts/kibana-search auth login --env bg_prod_main
+   ```
 4. 登录命令优先支持浏览器 SSO；也允许手动粘贴 cookie/header 作为兜底。
 5. 登录成功后保存凭证。
 6. 后续查询在凭证有效期内直接复用。
@@ -116,7 +149,7 @@ MVP 使用本地明文凭证文件，便于手动编辑和调试。凭证内容�
 首批核心能力是通用服务日志查询：
 
 ```bash
-kibana-search logs \
+bash skills/kibana-search/scripts/kibana-search logs \
   --env bg_prod_main \
   --service groot-lms-learning-server \
   --level ERROR \
@@ -144,7 +177,7 @@ kibana-search logs \
 给定示例 Discover URL 可转成：
 
 ```bash
-kibana-search logs \
+bash skills/kibana-search/scripts/kibana-search logs \
   --env bg_prod_main \
   --service groot-lms-learning-server \
   --level ERROR \
@@ -191,14 +224,14 @@ env:bg_prod_main/tool:kibana/data-views
 刷新命令：
 
 ```bash
-kibana-search cache refresh --env bg_prod_main
-kibana-search cache clear --env bg_prod_main
+bash skills/kibana-search/scripts/kibana-search cache refresh --env bg_prod_main
+bash skills/kibana-search/scripts/kibana-search cache clear --env bg_prod_main
 ```
 
 查询时也支持：
 
 ```bash
-kibana-search logs --env bg_prod_main --service groot-lms-learning-server --refresh-cache
+bash skills/kibana-search/scripts/kibana-search logs --env bg_prod_main --service groot-lms-learning-server --refresh-cache
 ```
 
 超过 TTL 后，查询会尝试自动刷新缓存。如果刷新失败且旧缓存存在，CLI 应返回明确提示；是否继续使用过期缓存由后续实现阶段决定，但不能静默掩盖刷新失败。
@@ -248,7 +281,7 @@ JSON 模式示例：
   "error": {
     "code": "AUTH_EXPIRED",
     "message": "Kibana credential expired for env bg_prod_main.",
-    "suggestion": "Run: kibana-search auth login --env bg_prod_main"
+    "suggestion": "Run: bash skills/kibana-search/scripts/kibana-search auth login --env bg_prod_main"
   }
 }
 ```
@@ -267,7 +300,12 @@ JSON 模式示例：
 
 ## Skill 使用方式
 
-新增 `skills/kibana-search/SKILL.md`，用于指导 Claude Code 调用 CLI。
+新增 `skills/kibana-search/SKILL.md`，skill 自身就是最终交付入口。它负责：
+
+- 指导 Claude Code 何时调用这个 skill。
+- 从用户请求中提取查询参数。
+- 调用 `skills/kibana-search/scripts/kibana-search`。
+- 在认证、缓存或配置失败时给出下一步指引。
 
 触发场景：
 
@@ -280,7 +318,7 @@ skill 流程：
 
 1. 从用户请求中提取 `env`、`service`、`level`、`keyword`、`traceId`、`time range`、`fields`。
 2. 如果缺少必要信息，问最少的问题。
-3. 调用 CLI，并优先加 `--json` 方便解析。
+3. 调用 skill 目录内脚本，并优先加 `--json` 方便解析。
 4. 如果返回认证或缓存错误，根据 `suggestion` 指导用户登录或刷新。
 5. 得到原始日志后，由 Claude Code 根据用户目标分析，不在 skill 中固化摘要规则。
 
@@ -324,5 +362,5 @@ skill 流程：
 3. 实现 Kibana data view 缓存读取、刷新和 TTL 判断。
 4. 实现 `logs` 查询命令和 KQL 构造。
 5. 用 mock Kibana API 补齐单元测试与集成测试。
-6. 新增 `kibana-search` skill，指导 Claude Code 使用 CLI。
+6. 新增 `kibana-search` skill，并让它调用 skill 目录内脚本。
 7. 用线上 Kibana 示例做手动验证。
