@@ -1,8 +1,13 @@
-# 单个 Skill 自包含的本地 Kibana 日志查询设计
+# 共享认证 Skill 与 Kibana 查询 Skill 设计
 
 ## 背景
 
-需要做一个本地 Kibana 查询搜索能力，用于跨环境、跨账号查询日志。整体交付形态不是“一个独立安装的外部工具 + 一个引用它的 skill”，而是**一个自包含的 skill**：skill 目录内同时包含说明文档、辅助脚本、配置模板，以及登录、缓存、查询相关逻辑。对外使用体验仍然保持为类似 `git` 的本地命令调用，但这些命令由 skill 内部脚本提供，而不是要求用户单独安装额外工具。
+需要做一个本地 Kibana 查询搜索能力，用于跨环境、跨账号查询日志。整体交付形态不是“一个独立安装的外部工具 + 一个引用它的 skill”，而是**仓库内多个可组合 skill 的本地方案**：
+
+- `skills/shared-auth/` 负责共享账号、SSO、凭证存储与登录态复用
+- `skills/kibana-search/` 负责 Kibana 查询、data view 缓存、KQL 组装和查询执行
+
+对外使用体验仍然保持为类似 `git` 的本地命令调用，但这些命令由 skill 内部脚本提供，而不是要求用户单独安装额外工具。这样既能保证 Kibana 查询独立演进，也能让后续其他工具复用同一套认证逻辑。
 
 首个场景是查询线上 Kibana 中某个服务最近一段时间的错误等级日志，例如 `groot-lms-learning-server` 最近 15 小时的 `ERROR` 日志。
 
@@ -10,14 +15,14 @@
 
 ## 目标
 
-- 提供一个自包含的本地 skill，内部带有类似 CLI 的脚本入口。
+- 提供一套仓库内 skill 组合方案：共享认证 skill + Kibana 查询 skill。
 - 环境名作为完整隔离边界，定位组织、部署环境、账号、认证信息、Kibana 地址和工具配置。
 - 支持通用服务日志查询：`service/app + level + keyword + traceId + time range`。
 - 查询结果返回原始日志内容，由上层 AI 负责分析。
 - 支持 Kibana/ES backend 策略配置：`kibana`、`es`、`auto`。
 - 缓存 Kibana data view/index pattern 元数据，并支持 TTL 与强制刷新。
-- 提供通用 auth 模块，MVP 使用本地明文凭证，后续可替换为钥匙串或加密存储。
-- Skill 文档直接说明 Claude Code 如何调用 skill 目录中的脚本查询日志、处理错误和解析 Kibana Discover URL。
+- 共享认证由 `skills/shared-auth/` 提供，MVP 使用仓库内本地明文凭证，后续可替换为钥匙串或加密存储。
+- `skills/kibana-search/` 直接说明 Claude Code、hermes-agent 等如何调用 skill 目录中的脚本查询日志、处理错误和解析 Kibana Discover URL。
 
 ## 非目标
 
@@ -29,10 +34,24 @@
 
 ## 总体形态
 
-整体以一个单独 skill 交付，例如 `skills/kibana-search/`。该目录内包含：
+整体以两个可组合 skill 交付：
+
+### 1. `skills/shared-auth/`
+
+负责所有可跨工具复用的认证能力：
+
+- 账号 profile 管理
+- 浏览器 SSO 登录
+- 明文凭证读写
+- 凭证过期检查
+- 为其他 skill 提供统一的凭证读取入口
+
+### 2. `skills/kibana-search/`
+
+负责 Kibana 专属能力：
 
 - `SKILL.md`：说明触发场景、参数收集方式、错误恢复方式。
-- `scripts/`：登录、缓存刷新、查询执行等脚本。
+- `scripts/`：查询执行、缓存刷新、配置检查等脚本。
 - `templates/`：示例配置模板。
 - `lib/`：如果需要，可放脚本共用的本地实现。
 
@@ -47,20 +66,29 @@ bash skills/kibana-search/scripts/kibana-search logs \
   --fields level,message
 ```
 
-AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读的原始日志行；加 `--json` 时输出稳定结构化 JSON，便于 Claude Code 或其他自动化工具解析。
+AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读的原始日志行；加 `--json` 时输出稳定结构化 JSON，便于 Claude Code、hermes-agent 或其他自动化工具解析。
 
-这样用户只需要使用这个 skill，不需要额外安装一个独立发布的外部工具。
+这样用户不需要额外安装一个独立发布的外部工具；同时认证逻辑不会被 `kibana-search` 私有化，后续其他 skill 也可以复用。
 
 ## 配置模型
 
-采用**单一 skill 自管理配置**：配置文件由 `skills/kibana-search/` 约定格式并提供模板，但实际可写配置放在用户本地路径，避免把敏感账号信息提交进仓库。推荐结构：
+采用**共享认证配置 + Kibana 专属配置**的双层模型，且两者都跟随 skill 存放，不绑定 Claude 私有目录，兼容 Claude Code 与 hermes-agent 等运行方。
 
-- 仓库内模板：`skills/kibana-search/templates/config.example.json`
-- 用户本地实际配置：`~/.claude/kibana-search/config.json`
-- 用户本地凭证文件：`~/.claude/kibana-search/credentials.json`
-- 用户本地缓存文件：`~/.claude/kibana-search/cache.json`
+推荐结构：
 
-这样配置、账号、缓存都仍然是“这个 skill 的一部分”，不会散落到多个独立工具里；同时敏感信息与仓库代码分离。
+- `skills/shared-auth/templates/auth-config.example.json`
+- `skills/shared-auth/.local/auth-config.json`
+- `skills/shared-auth/.local/credentials.json`
+- `skills/kibana-search/templates/config.example.json`
+- `skills/kibana-search/.local/config.json`
+- `skills/kibana-search/.local/cache.json`
+
+约定：
+
+- `shared-auth` 管理账号、SSO、凭证与登录态。
+- `kibana-search` 管理环境、Kibana 地址、字段映射、backend 策略和 data view 缓存。
+- `kibana-search` 通过 `auth.profile` 引用 `shared-auth` 中定义的认证配置。
+- `.local/` 属于运行态数据目录，应加入忽略规则，不进入 git。
 
 环境仍然是第一层隔离边界，工具配置作为环境内的命名空间。示例：
 
@@ -72,9 +100,7 @@ AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读�
       "stage": "prod",
       "account": "main",
       "auth": {
-        "profile": "bg_prod_main_sso",
-        "type": "sso_browser",
-        "credentialRef": "bg_prod_main"
+        "profile": "bg_prod_main_sso"
       },
       "tools": {
         "kibana": {
@@ -100,7 +126,22 @@ AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读�
 
 环境名本身可以采用 `组织_环境_账号` 结构，例如 `bg_prod_main`。脚本必须显式传入 `--env`，并且只能读取该环境下的对应工具配置，避免跨账号、跨环境串用。
 
-skill 还需要提供一个初始化入口，例如：
+`skills/shared-auth/.local/auth-config.json` 中维护认证 profile，例如：
+
+```json
+{
+  "profiles": {
+    "bg_prod_main_sso": {
+      "type": "sso_browser",
+      "credentialRef": "bg_prod_main"
+    }
+  }
+}
+```
+
+`kibana-search` 只引用 `auth.profile`，不重复保存认证细节。
+
+`kibana-search` 还需要提供一个初始化入口，例如：
 
 ```bash
 bash skills/kibana-search/scripts/kibana-search init
@@ -108,13 +149,14 @@ bash skills/kibana-search/scripts/kibana-search init
 
 该命令负责：
 
-- 将模板配置复制到 `~/.claude/kibana-search/config.json`
+- 将模板配置复制到 `skills/kibana-search/.local/config.json`
 - 检查必要字段是否已填写
 - 提示用户补充 `baseUrl`、默认 data view、字段映射等信息
+- 检查 `auth.profile` 是否能在 `shared-auth` 配置中找到
 
 ## 认证与凭证
 
-认证逻辑放在 skill 内的通用 auth 模块中，供未来这个 skill 扩展出的其他本地脚本复用。模块接口包括：
+认证逻辑放在 `skills/shared-auth/` 中，供 `kibana-search` 以及未来其他 skill 复用。模块接口包括：
 
 - `login`
 - `getCredential`
@@ -122,7 +164,7 @@ bash skills/kibana-search/scripts/kibana-search init
 - `isExpired`
 - `clearCredential`
 
-MVP 使用 `~/.claude/kibana-search/credentials.json` 本地明文凭证文件，便于手动编辑和调试。凭证内容可包含：
+MVP 使用 `skills/shared-auth/.local/credentials.json` 明文凭证文件，便于手动编辑和调试。凭证内容可包含：
 
 - cookie
 - bearer token
@@ -134,13 +176,13 @@ MVP 使用 `~/.claude/kibana-search/credentials.json` 本地明文凭证文件�
 
 1. 查询前读取当前 `--env` 的凭证。
 2. 如果缺失或过期，返回明确错误并提示登录命令。
-3. 用户执行：
+3. 用户执行共享认证登录命令：
    ```bash
-   bash skills/kibana-search/scripts/kibana-search auth login --env bg_prod_main
+   bash skills/shared-auth/scripts/auth login --profile bg_prod_main_sso
    ```
 4. 登录命令优先支持浏览器 SSO；也允许手动粘贴 cookie/header 作为兜底。
-5. 登录成功后保存凭证。
-6. 后续查询在凭证有效期内直接复用。
+5. 登录成功后保存凭证到 `skills/shared-auth/.local/credentials.json`。
+6. `kibana-search` 后续查询在凭证有效期内直接复用。
 
 凭证缓存 key 至少包含 `env + auth.profile + tool`，避免不同环境或账号复用错误凭证。
 
@@ -219,7 +261,7 @@ MVP 先实现 Kibana backend，因为当前已有 Kibana Discover URL 和 data v
 env:bg_prod_main/tool:kibana/data-views
 ```
 
-缓存文件记录 `fetchedAt` 和 `ttlSeconds`。默认 TTL 为 24 小时，可在环境工具配置中覆盖。
+缓存文件记录 `fetchedAt` 和 `ttlSeconds`。默认 TTL 为 24 小时，可在环境工具配置中覆盖。缓存建议保存在 `skills/kibana-search/.local/cache.json`。
 
 刷新命令：
 
@@ -281,7 +323,7 @@ JSON 模式示例：
   "error": {
     "code": "AUTH_EXPIRED",
     "message": "Kibana credential expired for env bg_prod_main.",
-    "suggestion": "Run: bash skills/kibana-search/scripts/kibana-search auth login --env bg_prod_main"
+    "suggestion": "Run: bash skills/shared-auth/scripts/auth login --profile bg_prod_main_sso"
   }
 }
 ```
@@ -300,12 +342,13 @@ JSON 模式示例：
 
 ## Skill 使用方式
 
-新增 `skills/kibana-search/SKILL.md`，skill 自身就是最终交付入口。它负责：
+新增 `skills/kibana-search/SKILL.md`，它是 Kibana 查询入口，但依赖 `skills/shared-auth/` 提供的共享认证能力。它负责：
 
-- 指导 Claude Code 何时调用这个 skill。
+- 指导 Claude Code、hermes-agent 何时调用这个 skill。
 - 从用户请求中提取查询参数。
 - 调用 `skills/kibana-search/scripts/kibana-search`。
 - 在认证、缓存或配置失败时给出下一步指引。
+- 需要登录时，转而引导调用 `skills/shared-auth/scripts/auth`。
 
 触发场景：
 
@@ -319,7 +362,7 @@ skill 流程：
 1. 从用户请求中提取 `env`、`service`、`level`、`keyword`、`traceId`、`time range`、`fields`。
 2. 如果缺少必要信息，问最少的问题。
 3. 调用 skill 目录内脚本，并优先加 `--json` 方便解析。
-4. 如果返回认证或缓存错误，根据 `suggestion` 指导用户登录或刷新。
+4. 如果返回认证或缓存错误，根据 `suggestion` 指导用户登录或刷新；认证相关操作统一走 `shared-auth`。
 5. 得到原始日志后，由 Claude Code 根据用户目标分析，不在 skill 中固化摘要规则。
 
 处理 Kibana URL 时，skill 应说明：
@@ -362,5 +405,5 @@ skill 流程：
 3. 实现 Kibana data view 缓存读取、刷新和 TTL 判断。
 4. 实现 `logs` 查询命令和 KQL 构造。
 5. 用 mock Kibana API 补齐单元测试与集成测试。
-6. 新增 `kibana-search` skill，并让它调用 skill 目录内脚本。
+6. 新增 `shared-auth` 与 `kibana-search` 两个 skill，并让 `kibana-search` 调用共享认证与自身脚本。
 7. 用线上 Kibana 示例做手动验证。
