@@ -22,6 +22,7 @@
 - 支持 Kibana/ES backend 策略配置：`kibana`、`es`、`auto`。
 - 缓存 Kibana data view/index pattern 元数据，并支持 TTL 与强制刷新。
 - 共享认证由 `skills/shared-auth/` 提供，MVP 使用仓库内本地明文凭证，后续可替换为钥匙串或加密存储。
+- 认证流程必须支持有 GUI 与无 GUI 系统，不能假设本地一定能打开浏览器。
 - `skills/kibana-search/` 直接说明 Claude Code、hermes-agent 等如何调用 skill 目录中的脚本查询日志、处理错误和解析 Kibana Discover URL。
 
 ## 非目标
@@ -41,9 +42,10 @@
 负责所有可跨工具复用的认证能力：
 
 - 账号 profile 管理
-- 浏览器 SSO 登录
+- 多通道登录：GUI 浏览器 SSO、headless 授权、手动导入现有会话
 - 明文凭证读写
 - 凭证过期检查
+- 本地浏览器/自动化能力探测
 - 为其他 skill 提供统一的凭证读取入口
 
 ### 2. `skills/kibana-search/`
@@ -133,7 +135,8 @@ AI、脚本和人都通过 skill 内脚本调用。默认输出适合人阅读�
   "profiles": {
     "bg_prod_main_sso": {
       "type": "sso_browser",
-      "credentialRef": "bg_prod_main"
+      "credentialRef": "bg_prod_main",
+      "loginMode": "auto"
     }
   }
 }
@@ -163,6 +166,8 @@ bash skills/kibana-search/scripts/kibana-search init
 - `saveCredential`
 - `isExpired`
 - `clearCredential`
+- `detectLoginCapabilities`
+- `importSession`
 
 MVP 使用 `skills/shared-auth/.local/credentials.json` 明文凭证文件，便于手动编辑和调试。凭证内容可包含：
 
@@ -171,16 +176,45 @@ MVP 使用 `skills/shared-auth/.local/credentials.json` 明文凭证文件，便
 - Kibana xsrf header 所需值
 - 过期时间或最近校验时间
 - 所属环境和 auth profile
+- 登录来源（gui / headless / imported）
 
-登录流程：
+### 登录通道
 
-1. 查询前读取当前 `--env` 的凭证。
+`shared-auth` 必须支持三种登录通道：
+
+1. **GUI 浏览器登录**
+   - 当系统存在桌面能力，且能找到可用浏览器或本地自动化能力时使用。
+   - 可以优先探测系统默认浏览器、已安装浏览器、或本地可用的浏览器自动化插件/脚本能力。
+   - 这些能力只能作为可选增强，不能作为唯一依赖。
+
+2. **Headless 授权登录**
+   - 当系统无 GUI、无法打开浏览器，或浏览器探测失败时使用。
+   - CLI 输出一个登录 URL、必要的 state 信息和后续指引。
+   - 用户可在另一台有浏览器的设备上完成登录，再将返回结果、cookie、token 或 header 粘贴回当前终端。
+   - 如果目标平台支持 device authorization、一次性授权码或中转回填，也优先复用该机制。
+
+3. **已有会话导入**
+   - 允许用户直接导入本机已有的 cookie、header、token、文件或环境变量。
+   - 用于跳板机、容器、CI、受限服务器等不适合交互式登录的场景。
+
+### 通道选择顺序
+
+默认 `loginMode=auto`，执行 `auth login` 时按以下顺序选择：
+
+1. 探测本地是否存在可用 GUI 浏览器或自动化能力。
+2. 若可用，走 GUI 浏览器登录。
+3. 若不可用，进入 headless 授权模式。
+4. 若用户显式指定 `--mode import`，则直接进入会话导入。
+
+### 登录流程
+
+1. 查询前读取当前 `--env` 对应 `auth.profile` 的凭证。
 2. 如果缺失或过期，返回明确错误并提示登录命令。
 3. 用户执行共享认证登录命令：
    ```bash
    bash skills/shared-auth/scripts/auth login --profile bg_prod_main_sso
    ```
-4. 登录命令优先支持浏览器 SSO；也允许手动粘贴 cookie/header 作为兜底。
+4. `shared-auth` 根据 `loginMode` 与能力探测结果自动选择 GUI、headless 或导入模式。
 5. 登录成功后保存凭证到 `skills/shared-auth/.local/credentials.json`。
 6. `kibana-search` 后续查询在凭证有效期内直接复用。
 
@@ -334,6 +368,8 @@ JSON 模式示例：
 - `CONFIG_MISSING_TOOL`：环境中没有 `tools.kibana`。
 - `AUTH_MISSING_CREDENTIAL`：没有可用凭证。
 - `AUTH_EXPIRED`：凭证过期或 Kibana 返回未登录。
+- `AUTH_CAPABILITY_UNAVAILABLE`：请求的登录模式在当前系统不可用。
+- `AUTH_HEADLESS_ACTION_REQUIRED`：需要用户在外部设备完成授权或粘贴返回凭证。
 - `CACHE_MISSING`：缺少 data view/index pattern 缓存且刷新失败。
 - `CACHE_EXPIRED_REFRESH_FAILED`：缓存过期但刷新失败。
 - `QUERY_INVALID_FIELD`：字段不在缓存字段中。
@@ -349,6 +385,7 @@ JSON 模式示例：
 - 调用 `skills/kibana-search/scripts/kibana-search`。
 - 在认证、缓存或配置失败时给出下一步指引。
 - 需要登录时，转而引导调用 `skills/shared-auth/scripts/auth`。
+- 识别当前环境是否可能为无 GUI 系统，并优先提示正确的登录通道。
 
 触发场景：
 
@@ -363,7 +400,8 @@ skill 流程：
 2. 如果缺少必要信息，问最少的问题。
 3. 调用 skill 目录内脚本，并优先加 `--json` 方便解析。
 4. 如果返回认证或缓存错误，根据 `suggestion` 指导用户登录或刷新；认证相关操作统一走 `shared-auth`。
-5. 得到原始日志后，由 Claude Code 根据用户目标分析，不在 skill 中固化摘要规则。
+5. 如果错误表明当前环境无 GUI 或浏览器能力不可用，优先引导用户使用 headless 授权或会话导入，而不是继续要求本地打开浏览器。
+6. 得到原始日志后，由 Claude Code 根据用户目标分析，不在 skill 中固化摘要规则。
 
 处理 Kibana URL 时，skill 应说明：
 
@@ -389,11 +427,15 @@ skill 流程：
 - logs 查询请求 payload。
 - 401/403 返回认证错误。
 - 字段不存在返回明确错误。
+- GUI 模式不可用时自动回退到 headless 模式。
+- `--mode import` 时会话导入流程可用。
 
 手动验证覆盖：
 
 - 使用 `bg_prod_main` 环境和线上 Kibana 示例参数查询最近 15 小时 ERROR 日志。
 - 首次无凭证时确认提示登录。
+- 在有 GUI 环境中验证浏览器登录可用。
+- 在无 GUI 环境中验证 headless 授权或会话导入可用。
 - 写入或登录凭证后确认查询成功。
 - 执行 `cache refresh` 后确认缓存文件更新。
 - 使用 `--json` 确认输出可由 AI 稳定解析。
