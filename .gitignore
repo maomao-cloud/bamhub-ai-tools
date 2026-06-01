@@ -85,3 +85,8 @@ LOG_FILE_IS_UNDEFINED
 
 ### claude worktrees ###
 .worktrees/
+
+skills/shared-auth/.local/*
+!skills/shared-auth/.local/.gitkeep
+skills/kibana-search/.local/*
+!skills/kibana-search/.local/.gitkeep
