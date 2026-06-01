@@ -43,7 +43,10 @@ test('validateEnvironmentAuthProfile checks shared auth profile reference', () =
 
   const config = loadKibanaConfig(kibanaConfigPath);
   const env = getEnvironmentConfig(config, 'bg_prod_main');
-  assert.equal(validateEnvironmentAuthProfile(env, authConfigPath), 'bg_prod_main_sso');
+  assert.deepEqual(validateEnvironmentAuthProfile(env, authConfigPath), {
+    profileName: 'bg_prod_main_sso',
+    credentialRef: 'bg_prod_main'
+  });
 });
 
 test('loadKibanaConfig rejects invalid JSON', () => {

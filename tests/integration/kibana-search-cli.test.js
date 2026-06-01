@@ -25,6 +25,7 @@ function runCli(args, env = {}) {
 function assertNoStackTrace(stderr) {
   assert.equal(stderr.includes('Error:'), false);
   assert.equal(stderr.includes('\n    at '), false);
+  assert.equal(stderr.includes('MODULE_TYPELESS_PACKAGE_JSON'), false);
 }
 
 function makeConfigDir() {
@@ -36,7 +37,8 @@ function makeConfigDir() {
         tools: {
           kibana: {
             preferredBackend: 'kibana',
-            dataViewId: 'logs-*',
+            baseUrl: 'https://kibana.example.com',
+            defaultDataViewId: 'logs-*',
             dataViewTtlSeconds: 600,
             fields: {
               serviceField: 'service.name',
@@ -104,6 +106,91 @@ test('logs --json with expired credential returns stable JSON auth error', () =>
   assertNoStackTrace(result.stderr);
   assert.equal(JSON.parse(result.stdout).error.code, 'AUTH_EXPIRED');
 });
+
+test('logs reads credentialRef while missing credential suggestion uses profile name', () => {
+  const paths = makeConfigDir();
+  writeJson(path.dirname(paths.authConfig), 'auth-config.json', {
+    profiles: { bg_prod_main_sso: { type: 'sso', credentialRef: 'bg_prod_main', loginMode: 'headless' } }
+  });
+  writeJson(path.dirname(paths.credentials), 'credentials.json', {
+    profiles: {
+      bg_prod_main: {
+        cookie: 'sid=123',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      }
+    }
+  });
+
+  const cachePath = writeJson(path.dirname(paths.credentials), 'cache.json', {
+    environments: {
+      bg_prod_main: {
+        fetchedAt: '2099-01-01T00:00:00.000Z',
+        ttlSeconds: 86400,
+        dataViewId: 'logs-*',
+        fields: {
+          serviceField: 'service.name',
+          levelField: 'log.level',
+          messageField: 'message',
+          traceIdField: 'trace.id'
+        }
+      }
+    }
+  });
+
+  const result = runCli(['logs', '--env', 'bg_prod_main', '--json'], {
+    KIBANA_SEARCH_CONFIG: paths.kibanaConfig,
+    SHARED_AUTH_CONFIG: paths.authConfig,
+    SHARED_AUTH_CREDENTIALS: paths.credentials,
+    KIBANA_SEARCH_CACHE: cachePath
+  });
+
+  assert.equal(result.status, 1);
+  assertNoStackTrace(result.stderr);
+  assert.equal(JSON.parse(result.stdout).error.code, 'QUERY_FAILED');
+});
+
+test('logs uses cached data view without refreshing metadata', () => {
+  const paths = makeConfigDir();
+  writeJson(path.dirname(paths.authConfig), 'auth-config.json', {
+    profiles: { bg_prod_main_sso: { type: 'sso', credentialRef: 'bg_prod_main', loginMode: 'headless' } }
+  });
+  writeJson(path.dirname(paths.credentials), 'credentials.json', {
+    profiles: {
+      bg_prod_main: {
+        cookie: 'sid=123',
+        expiresAt: '2099-01-01T00:00:00.000Z'
+      }
+    }
+  });
+  const cachePath = writeJson(path.dirname(paths.credentials), 'cache.json', {
+    environments: {
+      bg_prod_main: {
+        fetchedAt: '2099-01-01T00:00:00.000Z',
+        ttlSeconds: 86400,
+        dataViewId: 'logs-*',
+        fields: {
+          serviceField: 'service.name',
+          levelField: 'log.level',
+          messageField: 'message',
+          traceIdField: 'trace.id'
+        }
+      }
+    }
+  });
+
+  const result = runCli(['logs', '--env', 'bg_prod_main', '--service', 'api', '--json'], {
+    KIBANA_SEARCH_CONFIG: paths.kibanaConfig,
+    SHARED_AUTH_CONFIG: paths.authConfig,
+    SHARED_AUTH_CREDENTIALS: paths.credentials,
+    KIBANA_SEARCH_CACHE: cachePath
+  });
+
+  assert.equal(result.status, 1);
+  assertNoStackTrace(result.stderr);
+  const payload = JSON.parse(result.stdout);
+  assert.equal(payload.error.code, 'QUERY_FAILED');
+});
+
 
 test('missing --env returns stable JSON error without stack trace', () => {
   const result = runCli(['logs', '--json']);

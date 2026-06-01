@@ -44,6 +44,6 @@ export function validateEnvironmentAuthProfile(envConfig, authConfigPath) {
   }
 
   const authConfig = loadAuthConfig(authConfigPath);
-  getAuthProfile(authConfig, profileName);
-  return profileName;
+  const profile = getAuthProfile(authConfig, profileName);
+  return { profileName, credentialRef: profile.credentialRef };
 }

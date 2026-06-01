@@ -23,7 +23,7 @@ function runAuth(args, env = {}) {
 }
 
 function assertNoStackTrace(result) {
-  assert.doesNotMatch(result.stderr, /(?:Error:|at .*cli-auth|Node\.js v\d+)/);
+  assert.doesNotMatch(result.stderr, /(?:Error:|at .*cli-auth|Node\.js v\d+|MODULE_TYPELESS_PACKAGE_JSON)/);
 }
 
 test('auth login emits headless action required JSON when browser is unavailable', () => {
@@ -111,7 +111,7 @@ test('auth login missing profile emits normalized JSON error', () => {
   assert.equal(result.payload.error.code, 'AUTH_PROFILE_MISSING');
 });
 
-test('auth login gui mode unavailable emits capability JSON error', () => {
+test('auth login gui mode emits gui action required JSON when browser is available', () => {
   const result = runAuth([
     'login',
     '--profile',
@@ -119,14 +119,15 @@ test('auth login gui mode unavailable emits capability JSON error', () => {
     '--mode',
     'gui',
     '--json'
-  ]);
+  ], {
+    DISPLAY: ':0'
+  });
 
-  assert.equal(result.status, 1);
+  assert.equal(result.status, 0);
   assertNoStackTrace(result);
   assert.equal(result.payload.ok, false);
-  assert.equal(result.payload.error.code, 'AUTH_CAPABILITY_UNAVAILABLE');
+  assert.equal(result.payload.error.code, 'AUTH_GUI_ACTION_REQUIRED');
 });
-
 
 test('auth login missing config emits normalized JSON error', () => {
   const result = runAuth([

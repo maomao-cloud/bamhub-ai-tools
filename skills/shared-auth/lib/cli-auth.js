@@ -82,6 +82,14 @@ function headlessActionRequired(profileName) {
   );
 }
 
+function guiActionRequired(profileName) {
+  return authError(
+    'AUTH_GUI_ACTION_REQUIRED',
+    `Complete GUI login for profile ${profileName} in the local browser.`,
+    'Finish login in this machine browser, or use --mode headless / --mode import when browser login is not suitable.'
+  );
+}
+
 function importActionRequired(profileName) {
   return authError(
     'AUTH_IMPORT_ACTION_REQUIRED',
@@ -123,6 +131,8 @@ if (command !== 'login') {
         emit(importActionRequired(profileName), { json, status: SUCCESS_STATUS });
       } else if (mode === 'headless') {
         emit(headlessActionRequired(profileName), { json, status: SUCCESS_STATUS });
+      } else if (mode === 'gui') {
+        emit(guiActionRequired(profileName), { json, status: SUCCESS_STATUS });
       }
     } catch (error) {
       if (error?.message === 'AUTH_CAPABILITY_UNAVAILABLE') {

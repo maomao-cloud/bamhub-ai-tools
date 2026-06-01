@@ -14,15 +14,17 @@ test('detectLoginCapabilities reports headless when display is unavailable', () 
   assert.equal(capabilities.canImportSession, true);
 });
 
-test('detectLoginCapabilities defaults missing which to no browser command', () => {
-  const capabilities = detectLoginCapabilities({
-    env: { DISPLAY: ':0' },
-    platform: 'linux'
-  });
+test('detectLoginCapabilities uses process env and default PATH probing when arguments are omitted', () => {
+  const capabilities = detectLoginCapabilities();
 
-  assert.equal(capabilities.hasGui, true);
-  assert.equal(capabilities.canLaunchBrowser, false);
-  assert.equal(capabilities.browserCommand, null);
+  assert.equal(typeof capabilities.hasGui, 'boolean');
+  assert.equal(typeof capabilities.canLaunchBrowser, 'boolean');
+  assert.equal(capabilities.canImportSession, true);
+  assert.equal(capabilities.browserCommand === null || typeof capabilities.browserCommand === 'string', true);
+  if (process.platform === 'darwin') {
+    assert.match(capabilities.browserCommand ?? '', /open$/);
+    assert.equal(capabilities.canLaunchBrowser, true);
+  }
 });
 
 test('detectLoginCapabilities detects Linux GUI and prefers xdg-open', () => {

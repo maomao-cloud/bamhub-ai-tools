@@ -161,6 +161,15 @@ function parseKql(appState) {
   return parseKibanaValue(extractBalancedValue(queryState, 'query'));
 }
 
+function extractBaseUrl(url) {
+  const discoverMarker = '/app/discover';
+  const discoverIndex = url.pathname.indexOf(discoverMarker);
+  if (discoverIndex <= 0) {
+    return url.origin;
+  }
+  return `${url.origin}${url.pathname.slice(0, discoverIndex)}`;
+}
+
 export function parseDiscoverUrl(discoverUrl) {
   const url = new URL(discoverUrl);
   const hashParams = getHashSearchParams(url);
@@ -177,7 +186,7 @@ export function parseDiscoverUrl(discoverUrl) {
   }
 
   return {
-    baseUrl: url.origin,
+    baseUrl: extractBaseUrl(url),
     dataViewId,
     columns: parseList(extractBalancedValue(appState, 'columns')),
     timeRange,

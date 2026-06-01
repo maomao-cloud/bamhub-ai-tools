@@ -68,3 +68,16 @@ test('parseDiscoverUrl matches index key outside quoted KQL literals', () => {
   assert.equal(parsed.dataViewId, 'logs-data-view');
   assert.equal(parsed.kql, 'index:foo');
 });
+
+test('parseDiscoverUrl preserves Kibana space base path', () => {
+  const parsed = parseDiscoverUrl('https://kibana.example.com/s/prod/app/discover#/?_a=(columns:!(),index:logs)');
+
+  assert.equal(parsed.baseUrl, 'https://kibana.example.com/s/prod');
+});
+
+test('parseDiscoverUrl keeps origin base URL when no space path is present', () => {
+  const parsed = parseDiscoverUrl('https://kibana.example.com/app/discover#/?_a=(columns:!(),index:logs)');
+
+  assert.equal(parsed.baseUrl, 'https://kibana.example.com');
+});
+

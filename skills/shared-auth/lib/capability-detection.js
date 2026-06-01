@@ -1,5 +1,15 @@
-function defaultWhich() {
-  return null;
+import { execFileSync } from 'node:child_process';
+
+function defaultWhich(command) {
+  if (process.platform === 'win32') {
+    return command === 'start' ? 'start' : null;
+  }
+
+  try {
+    return execFileSync('which', [command], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 function getPlatformBrowserCommands(platform) {
@@ -38,7 +48,7 @@ function hasGuiForPlatform(env, platform, browserCommand) {
   return Boolean(env.DISPLAY || env.WAYLAND_DISPLAY);
 }
 
-export function detectLoginCapabilities({ env = {}, platform = process.platform, which = defaultWhich } = {}) {
+export function detectLoginCapabilities({ env = process.env, platform = process.platform, which = defaultWhich } = {}) {
   const safeWhich = typeof which === 'function' ? which : defaultWhich;
   const browser = findBrowserCommand(platform, safeWhich);
   const hasGui = hasGuiForPlatform(env, platform, browser);
