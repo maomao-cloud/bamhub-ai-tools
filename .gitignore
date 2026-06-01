@@ -85,6 +85,8 @@ LOG_FILE_IS_UNDEFINED
 
 ### claude worktrees ###
 .worktrees/
+.claude/
+skills-lock.json
 
 skills/shared-auth/.local/*
 !skills/shared-auth/.local/.gitkeep
