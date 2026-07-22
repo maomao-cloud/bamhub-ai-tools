@@ -139,6 +139,16 @@ test('conflicting source selectors are rejected as a typed error', async (t) => 
   );
 });
 
+test('apply rejects the removed summary-file option', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+
+  await assert.rejects(
+    () => runCli(['apply', '--source', 'demo', '--summary-file', 'report.md'], fixture),
+    (error) => error.code === 'OPTION_UNKNOWN'
+  );
+});
+
 test('the executable CLI emits a JSON typed error for an unknown source', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
@@ -265,9 +275,13 @@ test('apply replaces only configured roots and writes a deterministic README', a
   assert.equal(result.exitCode, 0);
   assert.equal(result.report.sources.demo.status, 'applied');
   assert.equal(await read(fixture.repoRoot, 'skills/demo-source/demo/SKILL.md'), skill('demo', 'Demo skill'));
-  assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Demo skill/);
-  assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Last successful sync/);
-  assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Changed files: `A skills\/demo\/SKILL\.md`/);
+  const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
+  assert.match(readme, /Demo skill/);
+  assert.match(readme, /Last successful sync/);
+  assert.match(readme, /## How to use/);
+  assert.match(readme, /## Suitable scenarios/);
+  assert.match(readme, /## General workflow/);
+  assert.doesNotMatch(readme, /## Update summary|Changed files:/);
   assert.equal(await exists(fixture.repoRoot, 'hooks/pre-commit'), false);
 });
 
@@ -325,13 +339,14 @@ test('apply rejects a locally edited generated README unless --force is explicit
   await runCli(['apply', '--source', 'demo', '--force'], fixture);
 });
 
-test('apply rejects a README edit with a recomputed trailing checksum', async (t) => {
+test('apply rejects an edited general workflow with a recomputed checksum', async (t) => {
   const fixture = await appliedFixture();
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
   const original = await read(fixture.repoRoot, 'skills/demo-source/README.md');
   const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
   assert.ok(marker && marker.index !== undefined);
-  const changedBody = original.slice(0, marker.index).replace('# Demo skills', '# Locally changed skills');
+  const changedBody = original.slice(0, marker.index)
+    .replace('3. Follow its workflow and run its required verification.', '3. Skip verification.');
   await write(
     fixture.repoRoot,
     'skills/demo-source/README.md',
@@ -368,74 +383,7 @@ test('--all continues applying a healthy source after another source fails', asy
   assert.equal(await exists(fixture.repoRoot, 'skills/healthy-source/README.md'), true);
 });
 
-test('apply includes a nonempty Markdown summary file in the README', async (t) => {
-  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-  await write(fixture.repoRoot, 'reports/demo-summary.md', 'A human-readable update summary.\n');
-
-  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
-
-  const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  assert.match(readme, /## Update summary\n\nA human-readable update summary\./);
-});
-
-test('apply accepts an unchanged target when given the same summary file', async (t) => {
-  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-  await write(fixture.repoRoot, 'reports/demo-summary.md', 'A human-readable update summary.\n');
-
-  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
-  const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
-
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.report.sources.demo.status, 'up-to-date');
-});
-
-test('apply accepts a prior optional-summary README when the summary file is unavailable', async (t) => {
-  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-  await write(fixture.repoRoot, 'reports/demo-summary.md', 'A human-readable update summary.\n');
-
-  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
-  const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture);
-
-  assert.equal(result.exitCode, 0);
-  assert.equal(result.report.sources.demo.status, 'up-to-date');
-});
-
-test('apply rejects a locally edited optional summary with a recomputed trailing digest', async (t) => {
-  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-  await write(fixture.repoRoot, 'reports/demo-summary.md', 'Accepted optional summary.\n');
-  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
-  const original = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
-  assert.ok(marker && marker.index !== undefined);
-  const changedBody = original.slice(0, marker.index)
-    .replace('Accepted optional summary.', 'Locally edited optional summary.');
-  await write(
-    fixture.repoRoot,
-    'skills/demo-source/README.md',
-    `${changedBody}<!-- bamhub-sync-digest: ${createHash('sha256').update(changedBody).digest('hex')} -->\n`
-  );
-
-  await assert.rejects(
-    () => runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture),
-    (error) => error.code === 'TARGET_DIRTY'
-  );
-});
-
-test('apply falls back to a deterministic changed-file list when the summary is unavailable', async (t) => {
-  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-
-  const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture);
-
-  assert.deepEqual(result.report.sources.demo.changedFiles, ['A skills/demo/SKILL.md']);
-  assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Changed files: `A skills\/demo\/SKILL\.md`/);
-});
-
-test('README reports actual added modified and deleted upstream files', async (t) => {
+test('apply reports actual added modified and deleted upstream files in JSON', async (t) => {
   const fixture = await createFixture({ sourceFiles: {
     'skills/demo/SKILL.md': skill('demo', 'Original skill'),
     'skills/demo/obsolete.txt': 'obsolete\n'
@@ -448,12 +396,16 @@ test('README reports actual added modified and deleted upstream files', async (t
   await git(fixture.sourceRoot, 'add', '-A');
   await git(fixture.sourceRoot, 'commit', '-m', 'fixture update');
 
-  await runCli(['apply', '--source', 'demo'], fixture);
+  const result = await runCli(['apply', '--source', 'demo'], fixture);
 
+  assert.deepEqual(result.report.sources.demo.changedFiles, [
+    'A skills/demo/new.txt',
+    'D skills/demo/obsolete.txt',
+    'M skills/demo/SKILL.md'
+  ]);
   const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  assert.match(readme, /`M skills\/demo\/SKILL\.md`/);
-  assert.match(readme, /`D skills\/demo\/obsolete\.txt`/);
-  assert.match(readme, /`A skills\/demo\/new\.txt`/);
+  assert.match(readme, /## General workflow/);
+  assert.doesNotMatch(readme, /Changed files:/);
 });
 
 test('apply changes only accepted state fields for its successful source', async (t) => {

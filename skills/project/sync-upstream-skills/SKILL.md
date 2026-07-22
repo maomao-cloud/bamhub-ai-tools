@@ -29,7 +29,7 @@ The command replaces the configured target with the selected upstream root, reco
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs apply --source superpowers --force
 ```
 
-For an optional human or AI-generated change note, pass a Markdown file with `--summary-file path/to/summary.md`. If it is absent, the generated README uses a deterministic changed-file list.
+The generated README is a deterministic usage guide for the current skill set. An AI-capable caller may read the `check` JSON report and present a per-call summary, but never passes that summary to `apply` or stores it in the repository.
 
 Configured upstream roots must be real directories. The synchronizer rejects a symlink root and any nested symlink that resolves outside that root before it stages files. A clean source whose accepted commit is still current is reported as `up-to-date` without rewriting its README or `acceptedAt`.
 

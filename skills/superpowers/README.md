@@ -3,9 +3,13 @@
 Source: https://github.com/obra/superpowers.git
 Ref: main
 Accepted commit: d884ae04edebef577e82ff7c4e143debd0bbec99
-Last successful sync: 2026-07-22T03:19:14.810Z
+Last successful sync: 2026-07-22T05:41:51.484Z
 
-## Available skills
+## How to use
+
+Choose a skill below, read its complete `SKILL.md` and referenced local resources, then follow its instructions.
+
+## Suitable scenarios
 
 - `brainstorming` — You MUST use this before any creative work - creating features, building components, adding functionality, or modifying behavior. Explores user intent, requirements and design before implementation.
 - `dispatching-parallel-agents` — Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies
@@ -22,7 +26,9 @@ Last successful sync: 2026-07-22T03:19:14.810Z
 - `writing-plans` — Use when you have a spec or requirements for a multi-step task, before touching code
 - `writing-skills` — Use when creating new skills, editing existing skills, or verifying skills work before deployment
 
-## Update summary
+## General workflow
 
-Changed files: (none)
-<!-- bamhub-sync-digest: 409777eaf21351141865d3cf11c1e0f3207931e5fbf0a739cdefcf0983906ba0 -->
+1. Choose the skill that matches the request.
+2. Read its `SKILL.md` and referenced resources.
+3. Follow its workflow and run its required verification.
+<!-- bamhub-sync-digest: f5228a54495a6075271db4f246c9e4648a209bfe1e77b76025df10ce0cedd1b9 -->

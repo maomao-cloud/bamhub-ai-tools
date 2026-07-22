@@ -155,8 +155,7 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const upstreamRoots = await validateUpstreamRoots(sourceId, source, cloneRoot);
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
-    const summary = await readSummary(repoRoot, options.summaryFile);
-    const targetsMatch = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary);
+    const targetsMatch = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots);
 
     if (!options.force && !targetsMatch) {
       throw new SyncError('TARGET_DIRTY', `TARGET_DIRTY: source ${sourceId} has local changes under a configured target`);
@@ -184,7 +183,7 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const changed = changedFiles(source, cloneRoot, targetCommit);
     const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
     const readmes = await Promise.all(stagedRoots.map((stagedRoot) => buildReadme({
-      sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: changed, summary
+      sourceId, source, targetCommit, acceptedAt, stagedRoot
     })));
     const replacements = [];
     try {
@@ -299,7 +298,7 @@ async function validateNestedSymlinks(sourceId, configuredRoot, currentRoot, can
   }
 }
 
-async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary) {
+async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
   if (isZeroCommit(source.acceptedCommit)) {
     return (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists);
   }
@@ -323,10 +322,9 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, su
         targetCommit: source.acceptedCommit,
         acceptedAt: source.acceptedAt,
         stagedRoot: expected,
-        changedFiles: [],
-        summary
+        changedFiles: []
       });
-      if (!await readmeMatches(target, expectedReadme, summary !== null)) return false;
+      if (!await readmeMatches(target, expectedReadme)) return false;
     }
     return true;
   } finally {
@@ -488,52 +486,22 @@ function changedFiles(source, cloneRoot, targetCommit) {
     .trim().split('\n').filter(Boolean).map((line) => line.replace(/\t/g, ' ')).sort();
 }
 
-async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles, summary }) {
+async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot }) {
   const skills = await listSkills(stagedRoot);
-  const summaryBody = summary ?? deterministicSummary(changedFiles);
   const title = `${sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ')} skills`;
   const availableSkills = skills.map(({ name, description }) => `- \`${name}\` — ${description}`).join('\n');
-  const summaryDigest = digestText(summaryBody);
-  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## Available skills\n\n${availableSkills}\n\n## Update summary\n\n${summaryBody}\n\n<!-- bamhub-summary-digest: ${summaryDigest} -->\n`;
+  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## How to use\n\nChoose a skill below, read its complete \`SKILL.md\` and referenced local resources, then follow its instructions.\n\n## Suitable scenarios\n\n${availableSkills}\n\n## General workflow\n\n1. Choose the skill that matches the request.\n2. Read its \`SKILL.md\` and referenced resources.\n3. Follow its workflow and run its required verification.\n`;
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 }
 
-async function readmeMatches(target, expectedReadme, compareSummary) {
+async function readmeMatches(target, expectedReadme) {
   let readme;
   try {
     readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
   } catch {
     return false;
   }
-  if (compareSummary) return readme === expectedReadme;
-  const parsed = parseGeneratedReadme(readme);
-  if (parsed === null) return false;
-  const actualPrefix = readmeBeforeSummary(parsed.body);
-  const expectedPrefix = readmeBeforeSummary(expectedReadme);
-  if (actualPrefix === null || actualPrefix !== expectedPrefix) return false;
-  if (parsed.summaryDigest === null) return true;
-  return digestText(parsed.summary) === parsed.summaryDigest;
-}
-
-function parseGeneratedReadme(readme) {
-  const digestMatch = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
-  if (!digestMatch || digestMatch.index === undefined) return null;
-  const body = readme.slice(0, digestMatch.index);
-  if (digestText(body) !== digestMatch[1]) return null;
-  const summaryMarker = '\n## Update summary\n\n';
-  const summaryIndex = body.indexOf(summaryMarker);
-  if (summaryIndex === -1) return null;
-  const summaryBlock = body.slice(summaryIndex + summaryMarker.length);
-  const summaryDigestMatch = summaryBlock.match(/^([\s\S]*)\n\n<!-- bamhub-summary-digest: ([a-f0-9]{64}) -->\n$/);
-  if (!summaryDigestMatch) {
-    return { body, summary: summaryBlock.replace(/\n$/, ''), summaryDigest: null };
-  }
-  return { body, summary: summaryDigestMatch[1], summaryDigest: summaryDigestMatch[2] };
-}
-
-function readmeBeforeSummary(readme) {
-  const index = readme.indexOf('\n## Update summary\n\n');
-  return index === -1 ? null : readme.slice(0, index);
+  return readme === expectedReadme;
 }
 
 function digestText(value) {
@@ -562,23 +530,6 @@ async function findSkillFiles(root) {
     if (entry.isDirectory()) files.push(...await findSkillFiles(file));
   }
   return files;
-}
-
-function deterministicSummary(changedFiles) {
-  if (!changedFiles.length) return 'Changed files: (none)';
-  return `Changed files: ${changedFiles.map((file) => `\`${file}\``).join(', ')}`;
-}
-
-async function readSummary(repoRoot, summaryFile) {
-  if (!summaryFile) return null;
-  const summaryPath = path.resolve(repoRoot, summaryFile);
-  if (!summaryPath.startsWith(`${repoRoot}${path.sep}`)) return null;
-  try {
-    const body = await fs.readFile(summaryPath, 'utf8');
-    return body.trim() || null;
-  } catch {
-    return null;
-  }
 }
 
 async function writeManifest(repoRoot, manifest) {
@@ -699,13 +650,7 @@ function parseOptions(argv) {
       options.force = true;
       continue;
     }
-    if (argument === '--summary-file') {
-      const value = argv[index + 1];
-      if (!value || value.startsWith('--')) throw new SyncError('OPTION_VALUE_REQUIRED', argument);
-      options.summaryFile = value;
-      index += 1;
-      continue;
-    }
+    if (argument === '--summary-file') throw new SyncError('OPTION_UNKNOWN', argument);
     throw new SyncError('OPTION_INVALID', argument);
   }
   return options;
