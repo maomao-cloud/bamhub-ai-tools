@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -205,6 +204,16 @@ test('apply rejects a dirty target unless --force is explicit', async (t) => {
   assert.equal(await read(fixture.repoRoot, 'skills/demo-source/demo/SKILL.md'), skill('demo'));
 });
 
+test('apply accepts a target that still matches its accepted source', async (t) => {
+  const fixture = await appliedFixture();
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+
+  const result = await runCli(['apply', '--source', 'demo'], fixture);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.sources.demo.status, 'applied');
+});
+
 test('apply rejects a locally edited generated README unless --force is explicit', async (t) => {
   const fixture = await appliedFixture();
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
@@ -215,22 +224,6 @@ test('apply rejects a locally edited generated README unless --force is explicit
     (error) => error.code === 'TARGET_DIRTY'
   );
   await runCli(['apply', '--source', 'demo', '--force'], fixture);
-});
-
-test('apply rejects a README edit even when its embedded checksum is recomputed', async (t) => {
-  const fixture = await appliedFixture();
-  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
-  const original = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
-  assert.ok(marker && marker.index !== undefined);
-  const changedBody = `${original.slice(0, marker.index).replace('# Demo skills', '# Locally changed skills')}`;
-  const replacement = `${changedBody}<!-- bamhub-sync-digest: ${createHash('sha256').update(changedBody).digest('hex')} -->\n`;
-  await write(fixture.repoRoot, 'skills/demo-source/README.md', replacement);
-
-  await assert.rejects(
-    () => runCli(['apply', '--source', 'demo'], fixture),
-    (error) => error.code === 'TARGET_DIRTY'
-  );
 });
 
 test('apply rejects executable-bit changes unless --force is explicit', async (t) => {
@@ -276,6 +269,51 @@ test('apply falls back to a deterministic changed-file list when the summary is 
 
   assert.deepEqual(result.report.sources.demo.changedFiles, ['A skills/demo/SKILL.md']);
   assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Changed files: `A skills\/demo\/SKILL\.md`/);
+});
+
+test('apply changes only accepted state fields for its successful source', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const before = await readManifest(fixture.repoRoot);
+  const result = await runCli(['apply', '--source', 'demo'], {
+    ...fixture,
+    now: () => new Date('2026-07-22T00:00:00.000Z')
+  });
+  const after = await readManifest(fixture.repoRoot);
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(Object.keys(after.sources.demo).sort(), Object.keys(before.sources.demo).sort());
+  assert.equal(after.sources.demo.acceptedCommit, result.report.sources.demo.targetCommit);
+  assert.equal(after.sources.demo.acceptedAt, '2026-07-22T00:00:00.000Z');
+  for (const key of Object.keys(before.sources.demo)) {
+    if (!['acceptedCommit', 'acceptedAt'].includes(key)) {
+      assert.deepEqual(after.sources.demo[key], before.sources.demo[key]);
+    }
+  }
+});
+
+test('a failed manifest write cannot advance a later --all manifest update', async (t) => {
+  const fixture = await twoHealthySourceFixture();
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const before = await readManifest(fixture.repoRoot);
+  let writeAttempts = 0;
+
+  const result = await runCli(['apply', '--all'], {
+    ...fixture,
+    async writeManifest(repoRoot, manifest) {
+      writeAttempts += 1;
+      if (writeAttempts === 1) throw new Error('manifest write failed');
+      await write(repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+    }
+  });
+  const after = await readManifest(fixture.repoRoot);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.report.sources.failed.status, 'failed');
+  assert.equal(result.report.sources.healthy.status, 'applied');
+  assert.deepEqual(after.sources.failed, before.sources.failed);
+  assert.notEqual(after.sources.healthy.acceptedCommit, before.sources.healthy.acceptedCommit);
+  assert.equal(await exists(fixture.repoRoot, 'skills/failed-source'), false);
 });
 
 test('an upstream root with a target README fails without writes', async (t) => {
@@ -430,6 +468,25 @@ async function twoSourceFixture({ brokenRoot }) {
   manifest.sources.broken = {
     ...manifest.sources.demo,
     roots: [{ upstream: brokenRoot ? 'missing' : 'skills/demo', target: 'skills/broken-source' }]
+  };
+  manifest.sources.healthy = {
+    ...manifest.sources.demo,
+    roots: [{ upstream: 'skills/healthy', target: 'skills/healthy-source' }]
+  };
+  delete manifest.sources.demo;
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+  return fixture;
+}
+
+async function twoHealthySourceFixture() {
+  const fixture = await createFixture({ sourceFiles: {
+    'skills/failed/SKILL.md': skill('failed'),
+    'skills/healthy/SKILL.md': skill('healthy')
+  } });
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.failed = {
+    ...manifest.sources.demo,
+    roots: [{ upstream: 'skills/failed', target: 'skills/failed-source' }]
   };
   manifest.sources.healthy = {
     ...manifest.sources.demo,

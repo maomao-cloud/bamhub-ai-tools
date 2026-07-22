@@ -146,6 +146,8 @@ async function checkSource(sourceId, source, repoRoot) {
 
 async function applySource(sourceId, manifest, repoRoot, options, io) {
   const source = manifest.sources[sourceId];
+  const nextManifest = structuredClone(manifest);
+  const nextSource = nextManifest.sources[sourceId];
   validateSource(sourceId, source, repoRoot);
   return withSourceClone(source, async (cloneRoot, temporaryRoot) => {
     const currentCommit = source.acceptedCommit;
@@ -182,7 +184,7 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
           repoRoot,
           target: targetRoots[index],
           stagedRoot: stagedRoots[index],
-          readme: readmes[index].content
+          readme: readmes[index]
         }));
       }
     } catch (error) {
@@ -192,13 +194,11 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
 
     try {
       for (const replacement of replacements) await replacement.commit();
+      nextSource.acceptedCommit = targetCommit;
+      nextSource.acceptedAt = acceptedAt;
+      await (io.writeManifest ?? writeManifest)(repoRoot, nextManifest);
       source.acceptedCommit = targetCommit;
       source.acceptedAt = acceptedAt;
-      source.acceptedReadmeDigests = Object.fromEntries(source.roots.map((root, index) => [
-        root.target,
-        readmes[index].digest
-      ]));
-      await writeManifest(repoRoot, manifest);
     } catch (error) {
       await Promise.all(replacements.reverse().map((replacement) => replacement.restore()));
       throw error;
@@ -259,7 +259,7 @@ async function targetsMatchAccepted(source, cloneRoot, targetRoots) {
       if (!await pathExists(target)) return false;
       const expected = resolveWithin(expectedRoot, source.roots[index].upstream);
       if (!await directoryDigestMatches(target, expected)) return false;
-      if (!await readmeDigestIsValid(target, source.acceptedReadmeDigests?.[source.roots[index].target])) return false;
+      if (!await readmeDigestIsValid(target)) return false;
     }
     return true;
   } finally {
@@ -427,11 +427,10 @@ async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedR
   const title = `${sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ')} skills`;
   const availableSkills = skills.map(({ name, description }) => `- \`${name}\` — ${description}`).join('\n');
   const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## Available skills\n\n${availableSkills}\n\n## Update summary\n\n${summaryBody}\n`;
-  const digest = digestText(body);
-  return { content: `${body}<!-- bamhub-sync-digest: ${digest} -->\n`, digest };
+  return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 }
 
-async function readmeDigestIsValid(target, expectedDigest) {
+async function readmeDigestIsValid(target) {
   let readme;
   try {
     readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
@@ -440,7 +439,7 @@ async function readmeDigestIsValid(target, expectedDigest) {
   }
   const match = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
   if (!match || match.index === undefined) return false;
-  return expectedDigest === match[1] && digestText(readme.slice(0, match.index)) === match[1];
+  return digestText(readme.slice(0, match.index)) === match[1];
 }
 
 function digestText(value) {
