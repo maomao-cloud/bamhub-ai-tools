@@ -156,7 +156,7 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
 
-    if (!options.force && !await targetsMatchAccepted(source, cloneRoot, targetRoots)) {
+    if (!options.force && !await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots)) {
       throw new SyncError('TARGET_DIRTY', `TARGET_DIRTY: source ${sourceId} has local changes under a configured target`);
     }
 
@@ -172,10 +172,11 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
       return stagedRoot;
     }));
     const changed = changedFiles(source, cloneRoot, targetCommit);
+    const readmeChangedFiles = managedFileStatuses(source, cloneRoot, targetCommit);
     const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
     const summary = await readSummary(repoRoot, options.summaryFile);
     const readmes = await Promise.all(stagedRoots.map((stagedRoot) => buildReadme({
-      sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: changed, summary
+      sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: readmeChangedFiles, summary
     })));
     const replacements = [];
     try {
@@ -241,7 +242,7 @@ async function validateUpstreamRoots(sourceId, source, cloneRoot) {
   return upstreamRoots;
 }
 
-async function targetsMatchAccepted(source, cloneRoot, targetRoots) {
+async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
   if (isZeroCommit(source.acceptedCommit)) {
     return (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists);
   }
@@ -259,7 +260,16 @@ async function targetsMatchAccepted(source, cloneRoot, targetRoots) {
       if (!await pathExists(target)) return false;
       const expected = resolveWithin(expectedRoot, source.roots[index].upstream);
       if (!await directoryDigestMatches(target, expected)) return false;
-      if (!await readmeDigestIsValid(target)) return false;
+      const expectedReadme = await buildReadme({
+        sourceId,
+        source,
+        targetCommit: source.acceptedCommit,
+        acceptedAt: source.acceptedAt,
+        stagedRoot: expected,
+        changedFiles: managedFileStatuses(source, expectedRoot, source.acceptedCommit),
+        summary: null
+      });
+      if (!await readmeMatches(target, expectedReadme)) return false;
     }
     return true;
   } finally {
@@ -421,6 +431,11 @@ function changedFiles(source, cloneRoot, targetCommit) {
     .trim().split('\n').filter(Boolean).sort();
 }
 
+function managedFileStatuses(source, cloneRoot, targetCommit) {
+  return runGit(['ls-tree', '-r', '--name-only', targetCommit, '--', ...source.roots.map((root) => root.upstream)], { cwd: cloneRoot })
+    .trim().split('\n').filter(Boolean).map((file) => `A ${file}`).sort();
+}
+
 async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles, summary }) {
   const skills = await listSkills(stagedRoot);
   const summaryBody = summary ?? deterministicSummary(changedFiles);
@@ -430,16 +445,14 @@ async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedR
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 }
 
-async function readmeDigestIsValid(target) {
+async function readmeMatches(target, expectedReadme) {
   let readme;
   try {
     readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
   } catch {
     return false;
   }
-  const match = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
-  if (!match || match.index === undefined) return false;
-  return digestText(readme.slice(0, match.index)) === match[1];
+  return readme === expectedReadme;
 }
 
 function digestText(value) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -224,6 +225,25 @@ test('apply rejects a locally edited generated README unless --force is explicit
     (error) => error.code === 'TARGET_DIRTY'
   );
   await runCli(['apply', '--source', 'demo', '--force'], fixture);
+});
+
+test('apply rejects a README edit with a recomputed trailing checksum', async (t) => {
+  const fixture = await appliedFixture();
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const original = await read(fixture.repoRoot, 'skills/demo-source/README.md');
+  const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
+  assert.ok(marker && marker.index !== undefined);
+  const changedBody = original.slice(0, marker.index).replace('# Demo skills', '# Locally changed skills');
+  await write(
+    fixture.repoRoot,
+    'skills/demo-source/README.md',
+    `${changedBody}<!-- bamhub-sync-digest: ${createHash('sha256').update(changedBody).digest('hex')} -->\n`
+  );
+
+  await assert.rejects(
+    () => runCli(['apply', '--source', 'demo'], fixture),
+    (error) => error.code === 'TARGET_DIRTY'
+  );
 });
 
 test('apply rejects executable-bit changes unless --force is explicit', async (t) => {
