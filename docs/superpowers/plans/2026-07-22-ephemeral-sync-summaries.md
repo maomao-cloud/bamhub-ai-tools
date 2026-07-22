@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 README 与同步状态完全确定，AI 摘要仅由调用方根据本次 `check` 报告临时生成。
+**Goal:** 让 README 与同步状态完全确定，并根据当前 skill 集合生成使用导览；AI 摘要仅由调用方根据本次 `check` 报告临时生成。
 
-**Architecture:** 同步器移除 `--summary-file` 和所有摘要哈希；README 永远由来源元数据、skill 清单和 `git diff --name-status` 构建。调用方读取 JSON 报告生成自己的摘要。GitHub Actions 将原始报告放在 runner 临时目录，避免它被自动 PR 操作提交。
+**Architecture:** 同步器移除 `--summary-file` 和所有摘要哈希；README 永远由来源元数据、当前 skill 清单、使用方法、适用场景和通用流程构建，不记录 A/M/D 文件变更。调用方读取 JSON 报告和当前 skill 内容生成自己的摘要。GitHub Actions 将原始报告放在 runner 临时目录，避免它被自动 PR 操作提交。
 
 **Tech Stack:** Node.js 22 内置模块、Git CLI、`node:test`、GitHub Actions。
 
@@ -12,7 +12,7 @@
 
 - 不在 `skills/superpowers/` 中修改任何上游镜像正文。
 - `skills/sources.json` 只保存来源配置、`acceptedCommit` 和 `acceptedAt`；不保存 AI 摘要或摘要哈希。
-- README 的 `## Update summary` 只能是确定性 `Changed files:` 文件状态列表。
+- README 必须包含当前 skill 的 `## How to use`、`## Suitable scenarios` 和 `## General workflow`，且不包含 A/M/D 文件变更列表。
 - `check` 不写入仓库；完整且已接受的同提交 `apply` 返回 `up-to-date` 且不改动 README 或清单。
 - GitHub Actions 只通过 PR 更新，不在无更新时把运行报告提交进 PR。
 
@@ -28,28 +28,28 @@
 
 **Interfaces:**
 - Consumes: `check|apply --source <id>` or `--all`.
-- Produces: deterministic `README.md` and JSON source report. `--summary-file` becomes an unknown CLI option.
+- Produces: deterministic usage-guide `README.md` and JSON source report. `--summary-file` becomes an unknown CLI option.
 
 - [ ] **Step 1: Replace summary-persistence tests with deterministic-state failures**
 
-Remove tests that expect summary Markdown in README. Add a test that `runCli(['apply', '--source', 'demo', '--summary-file', 'report.md'], fixture)` rejects with `OPTION_UNKNOWN`. Add a test that changes `Changed files:` in an applied README, then expects `TARGET_DIRTY` without `--force`. Add a second-upstream-commit fixture update and assert `apply` succeeds and emits the new deterministic `A`/`M`/`D` list. Retain the clean accepted-source test and assert its snapshot is byte-identical before and after `apply`.
+Remove tests that expect summary Markdown or A/M/D lists in README. Add a test that `runCli(['apply', '--source', 'demo', '--summary-file', 'report.md'], fixture)` rejects with `OPTION_UNKNOWN`. Add a test that changes the generated `## General workflow` section, then expects `TARGET_DIRTY` without `--force`. Assert a generated README contains `## How to use`, `## Suitable scenarios`, the current skill description, and `## General workflow`; retain the clean accepted-source test and assert its snapshot is byte-identical before and after `apply`.
 
 - [ ] **Step 2: Run the project sync test to verify it fails**
 
 Run `node --test tests/project/sync-upstream-skills.test.mjs`.
 
-Expected: failure because the parser accepts `--summary-file` and README generation still accepts optional summary content.
+Expected: failure because the parser accepts `--summary-file` and README generation still uses the old update-summary content.
 
 - [ ] **Step 3: Remove summary input and compare the complete README**
 
-Remove the `--summary-file` branch from `parseOptions`, then remove `readSummary`, `summary` parameters, and summary-digest parsing helpers. Generate the README with only `deterministicSummary(changedFiles)`:
+Remove the `--summary-file` branch from `parseOptions`, then remove `readSummary`, `summary` parameters, summary-digest parsing helpers, and `changedFiles` from README construction. Generate the README from the current discovered skills:
 
 ```js
-const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## Available skills\n\n${availableSkills}\n\n## Update summary\n\n${deterministicSummary(changedFiles)}\n`;
+const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## How to use\n\nChoose a skill below, read its complete \`SKILL.md\` and referenced local resources, then follow its instructions.\n\n## Suitable scenarios\n\n${availableSkills}\n\n## General workflow\n\n1. Choose the skill that matches the request.\n2. Read its \`SKILL.md\` and referenced resources.\n3. Follow its workflow and run its required verification.\n`;
 return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 ```
 
-Build expected accepted README with `changedFiles: []` and compare its full text in `readmeMatches`. Keep target-tree digests, symlink protections, transactionality, and the early clean up-to-date return unchanged.
+Build expected accepted README from the accepted root and compare its full text in `readmeMatches`. Keep target-tree digests, symlink protections, transactionality, and the early clean up-to-date return unchanged.
 
 - [ ] **Step 4: Update documentation**
 
