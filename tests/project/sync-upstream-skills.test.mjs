@@ -293,6 +293,18 @@ test('apply accepts an unchanged target when given the same summary file', async
   assert.equal(result.report.sources.demo.status, 'applied');
 });
 
+test('apply accepts a prior optional-summary README when the summary file is unavailable', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  await write(fixture.repoRoot, 'reports/demo-summary.md', 'A human-readable update summary.\n');
+
+  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
+  const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.sources.demo.status, 'applied');
+});
+
 test('apply falls back to a deterministic changed-file list when the summary is unavailable', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
@@ -301,6 +313,27 @@ test('apply falls back to a deterministic changed-file list when the summary is 
 
   assert.deepEqual(result.report.sources.demo.changedFiles, ['A skills/demo/SKILL.md']);
   assert.match(await read(fixture.repoRoot, 'skills/demo-source/README.md'), /Changed files: `A skills\/demo\/SKILL\.md`/);
+});
+
+test('README reports actual added modified and deleted upstream files', async (t) => {
+  const fixture = await createFixture({ sourceFiles: {
+    'skills/demo/SKILL.md': skill('demo', 'Original skill'),
+    'skills/demo/obsolete.txt': 'obsolete\n'
+  } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  await runCli(['apply', '--source', 'demo'], fixture);
+  await write(fixture.sourceRoot, 'skills/demo/SKILL.md', skill('demo', 'Updated skill'));
+  await write(fixture.sourceRoot, 'skills/demo/new.txt', 'new\n');
+  await fs.rm(path.join(fixture.sourceRoot, 'skills/demo/obsolete.txt'));
+  await git(fixture.sourceRoot, 'add', '-A');
+  await git(fixture.sourceRoot, 'commit', '-m', 'fixture update');
+
+  await runCli(['apply', '--source', 'demo'], fixture);
+
+  const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
+  assert.match(readme, /`M skills\/demo\/SKILL\.md`/);
+  assert.match(readme, /`D skills\/demo\/obsolete\.txt`/);
+  assert.match(readme, /`A skills\/demo\/new\.txt`/);
 });
 
 test('apply changes only accepted state fields for its successful source', async (t) => {
@@ -479,6 +512,7 @@ async function createFixture({ sourceFiles }) {
 
   return {
     repoRoot,
+    sourceRoot,
     tempRoot,
     stdout: { write() {} },
     stderr: { write() {} }

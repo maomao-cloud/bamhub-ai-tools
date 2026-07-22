@@ -173,10 +173,9 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
       return stagedRoot;
     }));
     const changed = changedFiles(source, cloneRoot, targetCommit);
-    const readmeChangedFiles = managedFileStatuses(source, cloneRoot, targetCommit);
     const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
     const readmes = await Promise.all(stagedRoots.map((stagedRoot) => buildReadme({
-      sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: readmeChangedFiles, summary
+      sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: changed, summary
     })));
     const replacements = [];
     try {
@@ -266,10 +265,10 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, su
         targetCommit: source.acceptedCommit,
         acceptedAt: source.acceptedAt,
         stagedRoot: expected,
-        changedFiles: managedFileStatuses(source, expectedRoot, source.acceptedCommit),
+        changedFiles: [],
         summary
       });
-      if (!await readmeMatches(target, expectedReadme)) return false;
+      if (!await readmeMatches(target, expectedReadme, summary !== null)) return false;
     }
     return true;
   } finally {
@@ -428,12 +427,7 @@ function changedFiles(source, cloneRoot, targetCommit) {
       .trim().split('\n').filter(Boolean).map((file) => `A ${file}`).sort();
   }
   return runGit(['diff', '--name-status', '--no-renames', source.acceptedCommit, targetCommit, '--', ...source.roots.map((root) => root.upstream)], { cwd: cloneRoot })
-    .trim().split('\n').filter(Boolean).sort();
-}
-
-function managedFileStatuses(source, cloneRoot, targetCommit) {
-  return runGit(['ls-tree', '-r', '--name-only', targetCommit, '--', ...source.roots.map((root) => root.upstream)], { cwd: cloneRoot })
-    .trim().split('\n').filter(Boolean).map((file) => `A ${file}`).sort();
+    .trim().split('\n').filter(Boolean).map((line) => line.replace(/\t/g, ' ')).sort();
 }
 
 async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles, summary }) {
@@ -445,14 +439,22 @@ async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedR
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 }
 
-async function readmeMatches(target, expectedReadme) {
+async function readmeMatches(target, expectedReadme, compareSummary) {
   let readme;
   try {
     readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
   } catch {
     return false;
   }
-  return readme === expectedReadme;
+  if (compareSummary) return readme === expectedReadme;
+  const actualPrefix = readmeBeforeSummary(readme);
+  const expectedPrefix = readmeBeforeSummary(expectedReadme);
+  return actualPrefix !== null && actualPrefix === expectedPrefix;
+}
+
+function readmeBeforeSummary(readme) {
+  const index = readme.indexOf('\n## Update summary\n\n');
+  return index === -1 ? null : readme.slice(0, index);
 }
 
 function digestText(value) {
