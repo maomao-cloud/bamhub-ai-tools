@@ -5,6 +5,23 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const SUPERPOWERS_ZH_DESCRIPTIONS = {
+  brainstorming: '在开始实现前梳理需求、方案和验收标准。',
+  'dispatching-parallel-agents': '在多个互不依赖的任务可并行时分派代理。',
+  'executing-plans': '在独立会话中按书面计划执行并保留审查检查点。',
+  'finishing-a-development-branch': '在实现和测试完成后选择合并、PR 或保留分支的交付方式。',
+  'receiving-code-review': '接收审查反馈时先验证问题，再有针对性地修复。',
+  'requesting-code-review': '在完成重要改动后请求独立代码审查。',
+  'subagent-driven-development': '在当前会话中按任务分派实现者并逐项复审。',
+  'systematic-debugging': '遇到故障或意外行为时按系统化步骤定位原因。',
+  'test-driven-development': '实现功能或修复前先编写可失败的测试。',
+  'using-git-worktrees': '开始需要隔离的开发前建立或确认 Git worktree。',
+  'using-superpowers': '每次对话开始时发现并调用适用的 skill。',
+  'verification-before-completion': '在声明完成、提交或创建 PR 前运行新鲜验证。',
+  'writing-plans': '将已确认的需求写成可执行的分步骤计划。',
+  'writing-skills': '创建、修改和验证可复用 skill。'
+};
+
 export class SyncError extends Error {
   constructor(code, message = code) {
     super(message);
@@ -488,10 +505,17 @@ function changedFiles(source, cloneRoot, targetCommit) {
 
 async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot }) {
   const skills = await listSkills(stagedRoot);
-  const title = `${sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ')} skills`;
-  const availableSkills = skills.map(({ name, description }) => `- \`${name}\` — ${description}`).join('\n');
-  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## How to use\n\nChoose a skill below, read its complete \`SKILL.md\` and referenced local resources, then follow its instructions.\n\n## Suitable scenarios\n\n${availableSkills}\n\n## General workflow\n\n1. Choose the skill that matches the request.\n2. Read its \`SKILL.md\` and referenced resources.\n3. Follow its workflow and run its required verification.\n`;
+  const sourceTitle = sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ');
+  const availableSkills = skills.map(({ name }) => `- \`${name}\` — ${localizeSkillDescription(sourceId, name)}`).join('\n');
+  const body = `# ${sourceTitle} 技能\n\n来源: ${source.repository}\n跟踪引用: ${source.ref}\n已接受提交: ${targetCommit}\n上次成功同步: ${acceptedAt}\n\n## 使用方法\n\n从下方选择匹配的 skill，阅读完整 \`SKILL.md\` 与其引用的本地资源，再按说明执行。\n\n## 适用场景\n\n${availableSkills}\n\n## 通用流程\n\n1. 选择与请求匹配的 skill。\n2. 阅读其 \`SKILL.md\` 和引用资源。\n3. 按流程执行，并运行其要求的验证。\n`;
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
+}
+
+function localizeSkillDescription(sourceId, name) {
+  if (sourceId === 'superpowers' && SUPERPOWERS_ZH_DESCRIPTIONS[name]) {
+    return SUPERPOWERS_ZH_DESCRIPTIONS[name];
+  }
+  return `请阅读 \`${name}/SKILL.md\` 获取完整用法。`;
 }
 
 async function readmeMatches(target, expectedReadme) {

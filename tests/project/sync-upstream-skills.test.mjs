@@ -23,6 +23,9 @@ test('Superpowers target contains only managed skills and its generated README',
   assert.equal(entries.filter((entry) => entry !== 'README.md').length, 14);
   assert.equal(await exists(root, 'skills/superpowers/.claude-plugin'), false);
   assert.equal(await exists(root, 'skills/superpowers/hooks'), false);
+  const readme = await read(root, 'skills/superpowers/README.md');
+  assert.match(readme, /# Superpowers 技能/);
+  assert.match(readme, /在开始实现前梳理需求、方案和验收标准。/);
 });
 
 test('check reports a source update without changing its target or manifest', async (t) => {
@@ -276,13 +279,31 @@ test('apply replaces only configured roots and writes a deterministic README', a
   assert.equal(result.report.sources.demo.status, 'applied');
   assert.equal(await read(fixture.repoRoot, 'skills/demo-source/demo/SKILL.md'), skill('demo', 'Demo skill'));
   const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  assert.match(readme, /Demo skill/);
-  assert.match(readme, /Last successful sync/);
-  assert.match(readme, /## How to use/);
-  assert.match(readme, /## Suitable scenarios/);
-  assert.match(readme, /## General workflow/);
+  assert.match(readme, /# Demo 技能/);
+  assert.match(readme, /来源: file:/);
+  assert.match(readme, /## 使用方法/);
+  assert.match(readme, /## 适用场景/);
+  assert.match(readme, /## 通用流程/);
+  assert.match(readme, /请阅读 `demo\/SKILL\.md` 获取完整用法。/);
   assert.doesNotMatch(readme, /## Update summary|Changed files:/);
   assert.equal(await exists(fixture.repoRoot, 'hooks/pre-commit'), false);
+});
+
+test('apply localizes configured Superpowers skill descriptions', async (t) => {
+  const fixture = await createFixture({ sourceFiles: {
+    'skills/brainstorming/SKILL.md': skill('brainstorming', 'English upstream description')
+  } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.superpowers = manifest.sources.demo;
+  delete manifest.sources.demo;
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+
+  const result = await runCli(['apply', '--source', 'superpowers'], fixture);
+
+  assert.equal(result.exitCode, 0);
+  const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
+  assert.match(readme, /在开始实现前梳理需求、方案和验收标准。/);
 });
 
 test('apply rejects a dirty target unless --force is explicit', async (t) => {
@@ -346,7 +367,7 @@ test('apply rejects an edited general workflow with a recomputed checksum', asyn
   const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
   assert.ok(marker && marker.index !== undefined);
   const changedBody = original.slice(0, marker.index)
-    .replace('3. Follow its workflow and run its required verification.', '3. Skip verification.');
+    .replace('3. 按流程执行，并运行其要求的验证。', '3. 跳过验证。');
   await write(
     fixture.repoRoot,
     'skills/demo-source/README.md',
@@ -404,7 +425,7 @@ test('apply reports actual added modified and deleted upstream files in JSON', a
     'M skills/demo/SKILL.md'
   ]);
   const readme = await read(fixture.repoRoot, 'skills/demo-source/README.md');
-  assert.match(readme, /## General workflow/);
+  assert.match(readme, /## 通用流程/);
   assert.doesNotMatch(readme, /Changed files:/);
 });
 
