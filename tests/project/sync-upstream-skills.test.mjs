@@ -28,8 +28,8 @@ test('Superpowers target contains only managed skills and its generated README',
   assert.equal(await exists(root, 'skills/superpowers/.claude-plugin'), false);
   assert.equal(await exists(root, 'skills/superpowers/hooks'), false);
   const readme = await read(root, 'skills/superpowers/README.md');
-  assert.match(readme, /# Superpowers 技能/);
-  assert.match(readme, /在开始实现前梳理需求、方案和验收标准。/);
+  const manifest = JSON.parse(await read(root, 'skills/sources.json'));
+  assertManagedReadmeContract(readme, manifest.sources.superpowers);
 });
 
 test('Caveman target contains the complete managed skill set and generated README', async () => {
@@ -71,16 +71,20 @@ test('Caveman target contains the complete managed skill set and generated READM
     assert.equal(await exists(root, `skills/caveman/${excluded}`), false, excluded);
   }
   const readme = await read(root, 'skills/caveman/README.md');
-  assert.match(readme, /# Caveman 技能/);
+  assertManagedReadmeContract(readme, source);
+});
+
+function assertManagedReadmeContract(readme, source) {
   assert.match(readme, new RegExp(`来源: ${source.repository}`));
   assert.match(readme, new RegExp(`跟踪引用: ${source.ref}`));
   assert.match(readme, new RegExp(`已接受提交: ${source.acceptedCommit}`));
   assert.match(readme, new RegExp(`上次成功同步: ${source.acceptedAt}`));
-  const marker = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
-  assert.ok(marker);
-  const body = readme.slice(0, marker.index);
-  assert.equal(marker[1], createHash('sha256').update(body).digest('hex'));
-});
+  assert.match(readme, /<!-- bamhub-sync-metadata:start -->/);
+  assert.match(readme, /<!-- bamhub-sync-metadata:end -->/);
+  assert.match(readme, /<!-- bamhub-sync-content:start -->/);
+  assert.match(readme, /<!-- bamhub-sync-content:end -->/);
+  assert.doesNotMatch(readme, /## 使用方法|## 适用场景|## 通用流程|请阅读/);
+}
 
 test('check reports a source update without changing its target or manifest', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
@@ -448,6 +452,8 @@ test('apply migrates an exact legacy generated README without --force', async (t
 
   assert.equal(result.exitCode, 0);
   assert.equal(result.report.sources.demo.status, 'applied');
+  assert.equal((await readManifest(fixture.repoRoot)).sources.demo.acceptedAt, source.acceptedAt);
+  assert.match(readme, new RegExp(`上次成功同步: ${source.acceptedAt}`));
   assert.equal(contentBetween(readme, CONTENT_START, CONTENT_END), '');
   assert.doesNotMatch(readme, /## 使用方法|## 适用场景|## 通用流程|请阅读/);
 });

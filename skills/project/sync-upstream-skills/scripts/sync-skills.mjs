@@ -203,7 +203,9 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
       return stagedRoot;
     }));
     const changed = changedFiles(source, cloneRoot, targetCommit);
-    const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
+    const acceptedAt = targetCommit === currentCommit
+      ? source.acceptedAt
+      : (typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString());
     const readmes = stagedRoots.map((stagedRoot, index) => buildReadme({
       source,
       targetCommit,

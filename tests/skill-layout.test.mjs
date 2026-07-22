@@ -92,6 +92,7 @@ test('repository docs identify all managed and owned skill roots', () => {
 test('scheduled workflow runs hosted checks and opens PRs without local schedulers', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/sync-skills.yml'), 'utf8');
   assert.match(workflow, /schedule:/);
+  assert.match(workflow, /cron: '0 16 \* \* \*'/);
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /create-pull-request/);
   assert.doesNotMatch(workflow, /launchd|crontab/);
