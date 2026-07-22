@@ -155,8 +155,9 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const upstreamRoots = await validateUpstreamRoots(sourceId, source, cloneRoot);
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
+    const summary = await readSummary(repoRoot, options.summaryFile);
 
-    if (!options.force && !await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots)) {
+    if (!options.force && !await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary)) {
       throw new SyncError('TARGET_DIRTY', `TARGET_DIRTY: source ${sourceId} has local changes under a configured target`);
     }
 
@@ -174,7 +175,6 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const changed = changedFiles(source, cloneRoot, targetCommit);
     const readmeChangedFiles = managedFileStatuses(source, cloneRoot, targetCommit);
     const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
-    const summary = await readSummary(repoRoot, options.summaryFile);
     const readmes = await Promise.all(stagedRoots.map((stagedRoot) => buildReadme({
       sourceId, source, targetCommit, acceptedAt, stagedRoot, changedFiles: readmeChangedFiles, summary
     })));
@@ -242,7 +242,7 @@ async function validateUpstreamRoots(sourceId, source, cloneRoot) {
   return upstreamRoots;
 }
 
-async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
+async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary) {
   if (isZeroCommit(source.acceptedCommit)) {
     return (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists);
   }
@@ -267,7 +267,7 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
         acceptedAt: source.acceptedAt,
         stagedRoot: expected,
         changedFiles: managedFileStatuses(source, expectedRoot, source.acceptedCommit),
-        summary: null
+        summary
       });
       if (!await readmeMatches(target, expectedReadme)) return false;
     }

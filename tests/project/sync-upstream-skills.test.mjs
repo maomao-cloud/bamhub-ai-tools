@@ -281,6 +281,18 @@ test('apply includes a nonempty Markdown summary file in the README', async (t) 
   assert.match(readme, /## Update summary\n\nA human-readable update summary\./);
 });
 
+test('apply accepts an unchanged target when given the same summary file', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  await write(fixture.repoRoot, 'reports/demo-summary.md', 'A human-readable update summary.\n');
+
+  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
+  const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.sources.demo.status, 'applied');
+});
+
 test('apply falls back to a deterministic changed-file list when the summary is unavailable', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
