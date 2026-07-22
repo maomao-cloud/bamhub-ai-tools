@@ -60,13 +60,9 @@ test('legacy flat Bamhub skill directories are absent', () => {
   }
 });
 
-test('legacy brainstorming companion path is a compatibility-only alias', () => {
-  const alias = path.join(repoRoot, 'skills/brainstorming/visual-companion.md');
-  const mirrored = path.join(repoRoot, 'skills/superpowers/brainstorming/visual-companion.md');
-
-  assert.equal(fs.lstatSync(alias).isSymbolicLink(), true);
-  assert.equal(fs.realpathSync(alias), fs.realpathSync(mirrored));
-  assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/SKILL.md')), false);
+test('legacy brainstorming paths are absent', () => {
+  assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming')), false);
+  assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/visual-companion.md')), false);
 });
 
 test('repository docs identify source, bamhub, and project skill ownership', () => {
@@ -74,7 +70,8 @@ test('repository docs identify source, bamhub, and project skill ownership', () 
   assert.match(agents, /skills\/superpowers/);
   assert.match(agents, /skills\/bamhub/);
   assert.match(agents, /skills\/project\/sync-upstream-skills/);
-  assert.match(agents, /skills\/brainstorming\/visual-companion\.md/);
+  assert.match(agents, /不提供这些兼容路径|旧平级路径/);
+  assert.doesNotMatch(agents, /兼容别名/);
   assert.match(agents, /GitHub Actions/);
 });
 
