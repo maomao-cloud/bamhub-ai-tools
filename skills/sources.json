@@ -12,6 +12,18 @@
           "target": "skills/superpowers"
         }
       ]
+    },
+    "caveman": {
+      "repository": "https://github.com/JuliusBrussee/caveman.git",
+      "ref": "main",
+      "acceptedCommit": "0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0",
+      "acceptedAt": "2026-07-22T10:04:11.489Z",
+      "roots": [
+        {
+          "upstream": "skills",
+          "target": "skills/caveman"
+        }
+      ]
     }
   }
 }
