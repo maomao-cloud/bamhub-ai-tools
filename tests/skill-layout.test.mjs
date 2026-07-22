@@ -60,11 +60,21 @@ test('legacy flat Bamhub skill directories are absent', () => {
   }
 });
 
+test('legacy brainstorming companion path is a compatibility-only alias', () => {
+  const alias = path.join(repoRoot, 'skills/brainstorming/visual-companion.md');
+  const mirrored = path.join(repoRoot, 'skills/superpowers/brainstorming/visual-companion.md');
+
+  assert.equal(fs.lstatSync(alias).isSymbolicLink(), true);
+  assert.equal(fs.realpathSync(alias), fs.realpathSync(mirrored));
+  assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/SKILL.md')), false);
+});
+
 test('repository docs identify source, bamhub, and project skill ownership', () => {
   const agents = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
   assert.match(agents, /skills\/superpowers/);
   assert.match(agents, /skills\/bamhub/);
   assert.match(agents, /skills\/project\/sync-upstream-skills/);
+  assert.match(agents, /skills\/brainstorming\/visual-companion\.md/);
   assert.match(agents, /GitHub Actions/);
 });
 

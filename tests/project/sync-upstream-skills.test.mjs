@@ -168,6 +168,75 @@ test('an upstream root may be the repository root', async (t) => {
   assert.equal(result.report.sources.demo.status, 'update-available');
 });
 
+test('a configured upstream root symlink fails without repository writes', async (t) => {
+  const fixture = await createFixture({
+    sourceFiles: { 'real-skills/demo/SKILL.md': skill('demo') },
+    sourceLinks: { skills: 'real-skills' }
+  });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const before = await snapshot(fixture.repoRoot);
+
+  const result = await runCli(['apply', '--source', 'demo'], fixture);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.report.sources.demo.status, 'failed');
+  assert.match(result.report.sources.demo.error, /root.*symbolic link/i);
+  assert.deepEqual(await snapshot(fixture.repoRoot), before);
+});
+
+test('an escaping nested upstream symlink fails without repository writes', async (t) => {
+  const fixture = await createFixture({
+    sourceFiles: {
+      'skills/demo/SKILL.md': skill('demo'),
+      'outside/private.txt': 'must not be staged\n'
+    },
+    sourceLinks: { 'skills/demo/escape': '../../outside' }
+  });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const before = await snapshot(fixture.repoRoot);
+
+  const result = await runCli(['apply', '--source', 'demo'], fixture);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.report.sources.demo.status, 'failed');
+  assert.match(result.report.sources.demo.error, /symbolic link.*configured root/i);
+  assert.deepEqual(await snapshot(fixture.repoRoot), before);
+});
+
+test('--all isolates an escaping upstream symlink from a healthy source', async (t) => {
+  const fixture = await createFixture({
+    sourceFiles: {
+      'skills/broken/SKILL.md': skill('broken'),
+      'skills/healthy/SKILL.md': skill('healthy'),
+      'outside/private.txt': 'must not be staged\n'
+    },
+    sourceLinks: { 'skills/broken/escape': '../../outside' }
+  });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.broken = {
+    ...manifest.sources.demo,
+    roots: [{ upstream: 'skills/broken', target: 'skills/broken-source' }]
+  };
+  manifest.sources.healthy = {
+    ...manifest.sources.demo,
+    roots: [{ upstream: 'skills/healthy', target: 'skills/healthy-source' }]
+  };
+  delete manifest.sources.demo;
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+  const before = await readManifest(fixture.repoRoot);
+
+  const result = await runCli(['apply', '--all'], fixture);
+  const after = await readManifest(fixture.repoRoot);
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(result.report.sources.broken.status, 'failed');
+  assert.equal(result.report.sources.healthy.status, 'applied');
+  assert.deepEqual(after.sources.broken, before.sources.broken);
+  assert.equal(await exists(fixture.repoRoot, 'skills/broken-source'), false);
+  assert.equal(await exists(fixture.repoRoot, 'skills/healthy-source/README.md'), true);
+});
+
 test('target paths outside the repository fail without writes', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
@@ -224,7 +293,24 @@ test('apply accepts a target that still matches its accepted source', async (t) 
   const result = await runCli(['apply', '--source', 'demo'], fixture);
 
   assert.equal(result.exitCode, 0);
-  assert.equal(result.report.sources.demo.status, 'applied');
+  assert.equal(result.report.sources.demo.status, 'up-to-date');
+});
+
+test('apply --all is a true no-op for a clean accepted source', async (t) => {
+  const fixture = await appliedFixture();
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const before = await snapshot(fixture.repoRoot);
+
+  const result = await runCli(['apply', '--all'], {
+    ...fixture,
+    now() {
+      throw new Error('clean sources must not request a new acceptedAt value');
+    }
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.report.sources.demo.status, 'up-to-date');
+  assert.deepEqual(await snapshot(fixture.repoRoot), before);
 });
 
 test('apply rejects a locally edited generated README unless --force is explicit', async (t) => {
@@ -302,7 +388,7 @@ test('apply accepts an unchanged target when given the same summary file', async
   const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
 
   assert.equal(result.exitCode, 0);
-  assert.equal(result.report.sources.demo.status, 'applied');
+  assert.equal(result.report.sources.demo.status, 'up-to-date');
 });
 
 test('apply accepts a prior optional-summary README when the summary file is unavailable', async (t) => {
@@ -314,7 +400,29 @@ test('apply accepts a prior optional-summary README when the summary file is una
   const result = await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture);
 
   assert.equal(result.exitCode, 0);
-  assert.equal(result.report.sources.demo.status, 'applied');
+  assert.equal(result.report.sources.demo.status, 'up-to-date');
+});
+
+test('apply rejects a locally edited optional summary with a recomputed trailing digest', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  await write(fixture.repoRoot, 'reports/demo-summary.md', 'Accepted optional summary.\n');
+  await runCli(['apply', '--source', 'demo', '--summary-file', 'reports/demo-summary.md'], fixture);
+  const original = await read(fixture.repoRoot, 'skills/demo-source/README.md');
+  const marker = original.match(/<!-- bamhub-sync-digest: [a-f0-9]{64} -->\n$/);
+  assert.ok(marker && marker.index !== undefined);
+  const changedBody = original.slice(0, marker.index)
+    .replace('Accepted optional summary.', 'Locally edited optional summary.');
+  await write(
+    fixture.repoRoot,
+    'skills/demo-source/README.md',
+    `${changedBody}<!-- bamhub-sync-digest: ${createHash('sha256').update(changedBody).digest('hex')} -->\n`
+  );
+
+  await assert.rejects(
+    () => runCli(['apply', '--source', 'demo', '--summary-file', 'reports/missing.md'], fixture),
+    (error) => error.code === 'TARGET_DIRTY'
+  );
 });
 
 test('apply falls back to a deterministic changed-file list when the summary is unavailable', async (t) => {
@@ -492,7 +600,7 @@ test('failed replacement preparation removes directories created for a configure
   assert.deepEqual(await snapshot(fixture.repoRoot), before);
 });
 
-async function createFixture({ sourceFiles }) {
+async function createFixture({ sourceFiles, sourceLinks = {} }) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'bamhub-sync-test-'));
   const repoRoot = path.join(tempRoot, 'consumer');
   const sourceRoot = path.join(tempRoot, 'upstream');
@@ -501,6 +609,11 @@ async function createFixture({ sourceFiles }) {
 
   for (const [relativePath, content] of Object.entries(sourceFiles)) {
     await write(sourceRoot, relativePath, content);
+  }
+  for (const [relativePath, target] of Object.entries(sourceLinks)) {
+    const linkPath = path.join(sourceRoot, relativePath);
+    await fs.mkdir(path.dirname(linkPath), { recursive: true });
+    await fs.symlink(target, linkPath);
   }
 
   await git(sourceRoot, 'init', '-b', 'main');

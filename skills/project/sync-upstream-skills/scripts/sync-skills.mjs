@@ -156,9 +156,18 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
     const summary = await readSummary(repoRoot, options.summaryFile);
+    const targetsMatch = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary);
 
-    if (!options.force && !await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary)) {
+    if (!options.force && !targetsMatch) {
       throw new SyncError('TARGET_DIRTY', `TARGET_DIRTY: source ${sourceId} has local changes under a configured target`);
+    }
+    if (targetCommit === currentCommit && targetsMatch) {
+      return {
+        status: 'up-to-date',
+        currentCommit,
+        targetCommit,
+        changedFiles: []
+      };
     }
 
     const stagedRoots = await Promise.all(upstreamRoots.map(async (upstreamRoot, index) => {
@@ -230,6 +239,7 @@ async function validateUpstreamRoots(sourceId, source, cloneRoot) {
   const upstreamRoots = [];
   for (const root of source.roots) {
     const upstreamRoot = resolveWithin(cloneRoot, root.upstream);
+    await validateUpstreamRootSafety(sourceId, root.upstream, upstreamRoot);
     if (!await containsSkill(upstreamRoot)) {
       throw new SyncError('ROOT_NO_SKILL', `source ${sourceId} root ${root.upstream} contains no SKILL.md`);
     }
@@ -239,6 +249,54 @@ async function validateUpstreamRoots(sourceId, source, cloneRoot) {
     upstreamRoots.push(upstreamRoot);
   }
   return upstreamRoots;
+}
+
+async function validateUpstreamRootSafety(sourceId, configuredRoot, upstreamRoot) {
+  let rootStat;
+  try {
+    rootStat = await fs.lstat(upstreamRoot);
+  } catch (error) {
+    if (error && error.code === 'ENOENT') return;
+    throw error;
+  }
+  if (rootStat.isSymbolicLink()) {
+    throw new SyncError(
+      'ROOT_SYMLINK',
+      `source ${sourceId} root ${configuredRoot} must not be a symbolic link`
+    );
+  }
+  if (!rootStat.isDirectory()) return;
+
+  const canonicalRoot = await fs.realpath(upstreamRoot);
+  await validateNestedSymlinks(sourceId, configuredRoot, upstreamRoot, canonicalRoot);
+}
+
+async function validateNestedSymlinks(sourceId, configuredRoot, currentRoot, canonicalRoot) {
+  const entries = await fs.readdir(currentRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    const entryPath = path.join(currentRoot, entry.name);
+    if (entry.isSymbolicLink()) {
+      let canonicalTarget;
+      try {
+        canonicalTarget = await fs.realpath(entryPath);
+      } catch (error) {
+        throw new SyncError(
+          'ROOT_SYMLINK_INVALID',
+          `source ${sourceId} root ${configuredRoot} contains an unresolved symbolic link: ${entryPath}`
+        );
+      }
+      if (!isWithin(canonicalRoot, canonicalTarget)) {
+        throw new SyncError(
+          'ROOT_SYMLINK_ESCAPE',
+          `source ${sourceId} root ${configuredRoot} contains a symbolic link outside its configured root: ${entryPath}`
+        );
+      }
+      continue;
+    }
+    if (entry.isDirectory()) {
+      await validateNestedSymlinks(sourceId, configuredRoot, entryPath, canonicalRoot);
+    }
+  }
 }
 
 async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots, summary) {
@@ -435,7 +493,8 @@ async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedR
   const summaryBody = summary ?? deterministicSummary(changedFiles);
   const title = `${sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ')} skills`;
   const availableSkills = skills.map(({ name, description }) => `- \`${name}\` — ${description}`).join('\n');
-  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## Available skills\n\n${availableSkills}\n\n## Update summary\n\n${summaryBody}\n`;
+  const summaryDigest = digestText(summaryBody);
+  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## Available skills\n\n${availableSkills}\n\n## Update summary\n\n${summaryBody}\n\n<!-- bamhub-summary-digest: ${summaryDigest} -->\n`;
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
 }
 
@@ -447,9 +506,29 @@ async function readmeMatches(target, expectedReadme, compareSummary) {
     return false;
   }
   if (compareSummary) return readme === expectedReadme;
-  const actualPrefix = readmeBeforeSummary(readme);
+  const parsed = parseGeneratedReadme(readme);
+  if (parsed === null) return false;
+  const actualPrefix = readmeBeforeSummary(parsed.body);
   const expectedPrefix = readmeBeforeSummary(expectedReadme);
-  return actualPrefix !== null && actualPrefix === expectedPrefix;
+  if (actualPrefix === null || actualPrefix !== expectedPrefix) return false;
+  if (parsed.summaryDigest === null) return true;
+  return digestText(parsed.summary) === parsed.summaryDigest;
+}
+
+function parseGeneratedReadme(readme) {
+  const digestMatch = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
+  if (!digestMatch || digestMatch.index === undefined) return null;
+  const body = readme.slice(0, digestMatch.index);
+  if (digestText(body) !== digestMatch[1]) return null;
+  const summaryMarker = '\n## Update summary\n\n';
+  const summaryIndex = body.indexOf(summaryMarker);
+  if (summaryIndex === -1) return null;
+  const summaryBlock = body.slice(summaryIndex + summaryMarker.length);
+  const summaryDigestMatch = summaryBlock.match(/^([\s\S]*)\n\n<!-- bamhub-summary-digest: ([a-f0-9]{64}) -->\n$/);
+  if (!summaryDigestMatch) {
+    return { body, summary: summaryBlock.replace(/\n$/, ''), summaryDigest: null };
+  }
+  return { body, summary: summaryDigestMatch[1], summaryDigest: summaryDigestMatch[2] };
 }
 
 function readmeBeforeSummary(readme) {
@@ -551,6 +630,10 @@ function validateSource(sourceId, source, repoRoot) {
 
 function targetsOverlap(left, right) {
   return left === right || left.startsWith(`${right}${path.sep}`) || right.startsWith(`${left}${path.sep}`);
+}
+
+function isWithin(basePath, candidatePath) {
+  return candidatePath === basePath || candidatePath.startsWith(`${basePath}${path.sep}`);
 }
 
 function resolveWithin(basePath, relativePath) {

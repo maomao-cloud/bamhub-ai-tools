@@ -4,6 +4,8 @@
 
 本仓库是一组 AI Agent skill，而非单一应用。skill 按所有权分为三类：`skills/superpowers/` 是上游 Superpowers 的完整本地镜像，禁止直接修改；`skills/bamhub/` 是可复用的 Bamhub 自有 skill，按领域分组；`skills/project/` 存放仅服务本仓库的能力，例如 `skills/project/sync-upstream-skills/`。每个 skill 以 `SKILL.md` 为入口；辅助脚本放在 `scripts/`，JavaScript 模块放在 `lib/`，示例或模板放在 `examples/` 或 `templates/`。测试在 `tests/` 中按领域组织。
 
+`skills/brainstorming/visual-companion.md` 是指向上游镜像文件的运行时兼容别名，仅用于满足 Superpowers 文档中的旧路径；该目录不是 Bamhub skill，也不归上游同步器管理。
+
 编辑 skill 前，须阅读完整的 `SKILL.md` 及其引用的所有本地文件。修改行为时，应保持说明、引用文档、模板与脚本一致。仅适用于本仓库、无法复用的约定应写入 `CLAUDE.md`。
 
 ## 构建、测试与开发命令
