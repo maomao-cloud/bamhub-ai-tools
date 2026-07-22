@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseDiscoverUrl } from '../../skills/kibana-search/lib/discover-url.js';
+import { parseDiscoverUrl } from '../../skills/bamhub/integrations/kibana-search/lib/discover-url.js';
 
 const sampleDiscoverUrl = 'https://kibana.bg.allschool.com/app/discover#/?_g=(filters:!(),refreshInterval:(pause:!t,value:0),time:(from:now-15h,to:now))&_a=(columns:!(level,message),filters:!(),index:f12ae960-16d1-11ec-97d3-31b29b7fe5a5,interval:auto,query:(language:kuery,query:\'APP_NAME:%22groot-lms-learning-server%22%20and%20level%20:%20%22ERROR%22%20\'),sort:!())';
 
@@ -80,4 +80,3 @@ test('parseDiscoverUrl keeps origin base URL when no space path is present', () 
 
   assert.equal(parsed.baseUrl, 'https://kibana.example.com');
 });
-

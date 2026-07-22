@@ -8,7 +8,7 @@ import {
   loadCredential,
   clearCredential,
   isExpired
-} from '../../skills/shared-auth/lib/credentials-store.js';
+} from '../../skills/bamhub/integrations/shared-auth/lib/credentials-store.js';
 
 test('credential store saves and loads by profile key', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-auth-credentials-'));

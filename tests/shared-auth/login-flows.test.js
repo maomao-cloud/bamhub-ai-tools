@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseLoginMode } from '../../skills/shared-auth/lib/login-flows.js';
+import { chooseLoginMode } from '../../skills/bamhub/integrations/shared-auth/lib/login-flows.js';
 
 test('chooseLoginMode falls back to headless when browser is unavailable', () => {
   const mode = chooseLoginMode(

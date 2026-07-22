@@ -4,13 +4,13 @@ import { spawnSync } from 'node:child_process';
 
 function runAuth(args, env = {}) {
   const result = spawnSync('bash', [
-    'skills/shared-auth/scripts/auth',
+    'skills/bamhub/integrations/shared-auth/scripts/auth',
     ...args
   ], {
     env: {
       ...process.env,
-      SHARED_AUTH_CONFIG: 'skills/shared-auth/templates/auth-config.example.json',
-      SHARED_AUTH_CREDENTIALS: 'skills/shared-auth/.local/test-credentials.json',
+      SHARED_AUTH_CONFIG: 'skills/bamhub/integrations/shared-auth/templates/auth-config.example.json',
+      SHARED_AUTH_CREDENTIALS: 'skills/bamhub/integrations/shared-auth/.local/test-credentials.json',
       ...env
     },
     encoding: 'utf8'
@@ -136,7 +136,7 @@ test('auth login missing config emits normalized JSON error', () => {
     'bg_prod_main_sso',
     '--json'
   ], {
-    SHARED_AUTH_CONFIG: 'skills/shared-auth/.local/missing-auth-config.json'
+    SHARED_AUTH_CONFIG: 'skills/bamhub/integrations/shared-auth/.local/missing-auth-config.json'
   });
 
   assert.equal(result.status, 1);

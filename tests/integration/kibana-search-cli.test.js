@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '../..');
-const cli = path.join(root, 'skills/kibana-search/scripts/kibana-search');
+const cli = path.join(root, 'skills/bamhub/integrations/kibana-search/scripts/kibana-search');
 
 function writeJson(dir, name, value) {
   const file = path.join(dir, name);

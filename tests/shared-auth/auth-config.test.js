@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { loadAuthConfig, getAuthProfile } from '../../skills/shared-auth/lib/auth-config.js';
+import { loadAuthConfig, getAuthProfile } from '../../skills/bamhub/integrations/shared-auth/lib/auth-config.js';
 
 test('loadAuthConfig reads profiles from repository-local config', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'shared-auth-config-'));
