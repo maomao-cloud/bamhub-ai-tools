@@ -13,6 +13,18 @@ import { runCli } from '../../skills/project/sync-upstream-skills/scripts/sync-s
 const execFileAsync = promisify(execFile);
 const syncScript = fileURLToPath(new URL('../../skills/project/sync-upstream-skills/scripts/sync-skills.mjs', import.meta.url));
 
+test('Superpowers target contains only managed skills and its generated README', async () => {
+  const root = path.resolve(import.meta.dirname, '../..');
+  const entries = (await fs.readdir(path.join(root, 'skills/superpowers'))).sort();
+
+  assert.ok(entries.includes('README.md'));
+  assert.ok(entries.includes('brainstorming'));
+  assert.ok(entries.includes('test-driven-development'));
+  assert.equal(entries.filter((entry) => entry !== 'README.md').length, 14);
+  assert.equal(await exists(root, 'skills/superpowers/.claude-plugin'), false);
+  assert.equal(await exists(root, 'skills/superpowers/hooks'), false);
+});
+
 test('check reports a source update without changing its target or manifest', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
