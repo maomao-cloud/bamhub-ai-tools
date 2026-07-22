@@ -85,3 +85,13 @@ test('scheduled workflow runs hosted checks and opens PRs without local schedule
   assert.match(workflow, /create-pull-request/);
   assert.doesNotMatch(workflow, /launchd|crontab/);
 });
+
+test('scheduled workflow keeps sync reports outside the checkout', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/sync-skills.yml'), 'utf8');
+
+  assert.match(workflow, /apply --all > "\$RUNNER_TEMP\/sync-report\.json"/);
+  assert.match(workflow, /cat "\$RUNNER_TEMP\/sync-report\.json"/);
+  assert.match(workflow, /path: \$RUNNER_TEMP\/sync-report\.json/);
+  assert.doesNotMatch(workflow, /> sync-report\.json/);
+  assert.doesNotMatch(workflow, /path: sync-report\.json/);
+});
