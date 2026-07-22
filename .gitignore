@@ -89,7 +89,7 @@ LOG_FILE_IS_UNDEFINED
 .superpowers/
 skills-lock.json
 
-skills/shared-auth/.local/*
-!skills/shared-auth/.local/.gitkeep
-skills/kibana-search/.local/*
-!skills/kibana-search/.local/.gitkeep
+skills/bamhub/integrations/shared-auth/.local/*
+!skills/bamhub/integrations/shared-auth/.local/.gitkeep
+skills/bamhub/integrations/kibana-search/.local/*
+!skills/bamhub/integrations/kibana-search/.local/.gitkeep

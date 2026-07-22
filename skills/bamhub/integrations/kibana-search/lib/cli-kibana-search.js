@@ -16,7 +16,7 @@ import {
 
 const ERROR_STATUS = 1;
 const SUCCESS_STATUS = 0;
-const DEFAULT_CACHE_PATH = 'skills/kibana-search/.local/cache.json';
+const DEFAULT_CACHE_PATH = 'skills/bamhub/integrations/kibana-search/.local/cache.json';
 
 function isValidOptionValue(value) {
   return Boolean(value) && !value.startsWith('--');
@@ -106,9 +106,9 @@ export async function run(argv = process.argv.slice(2), env = process.env) {
     return;
   }
 
-  const configPath = env.KIBANA_SEARCH_CONFIG || 'skills/kibana-search/.local/config.json';
-  const authConfigPath = env.SHARED_AUTH_CONFIG || 'skills/shared-auth/.local/auth-config.json';
-  const credentialsPath = env.SHARED_AUTH_CREDENTIALS || 'skills/shared-auth/.local/credentials.json';
+  const configPath = env.KIBANA_SEARCH_CONFIG || 'skills/bamhub/integrations/kibana-search/.local/config.json';
+  const authConfigPath = env.SHARED_AUTH_CONFIG || 'skills/bamhub/integrations/shared-auth/.local/auth-config.json';
+  const credentialsPath = env.SHARED_AUTH_CREDENTIALS || 'skills/bamhub/integrations/shared-auth/.local/credentials.json';
   const cachePath = env.KIBANA_SEARCH_CACHE || DEFAULT_CACHE_PATH;
 
   try {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatJsonResult, formatTextLogs } from '../../skills/kibana-search/lib/output.js';
+import { formatJsonResult, formatTextLogs } from '../../skills/bamhub/integrations/kibana-search/lib/output.js';
 
 test('formatJsonResult returns stable successful log payload', () => {
   const payload = formatJsonResult({

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createKibanaClient } from '../../skills/kibana-search/lib/kibana-client.js';
+import { createKibanaClient } from '../../skills/bamhub/integrations/kibana-search/lib/kibana-client.js';
 
 test('createKibanaClient creates available Kibana client', () => {
   const client = createKibanaClient();

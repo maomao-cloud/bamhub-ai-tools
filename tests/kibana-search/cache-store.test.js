@@ -7,7 +7,7 @@ import {
   saveCacheEntry,
   loadCacheEntry,
   isCacheExpired
-} from '../../skills/kibana-search/lib/cache-store.js';
+} from '../../skills/bamhub/integrations/kibana-search/lib/cache-store.js';
 
 function createTempCachePath() {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kibana-cache-'));

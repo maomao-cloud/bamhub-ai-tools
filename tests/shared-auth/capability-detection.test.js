@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectLoginCapabilities } from '../../skills/shared-auth/lib/capability-detection.js';
+import { detectLoginCapabilities } from '../../skills/bamhub/integrations/shared-auth/lib/capability-detection.js';
 
 test('detectLoginCapabilities reports headless when display is unavailable', () => {
   const capabilities = detectLoginCapabilities({

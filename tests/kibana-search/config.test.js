@@ -7,7 +7,7 @@ import {
   loadKibanaConfig,
   getEnvironmentConfig,
   validateEnvironmentAuthProfile
-} from '../../skills/kibana-search/lib/config.js';
+} from '../../skills/bamhub/integrations/kibana-search/lib/config.js';
 
 function createTempConfigDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'kibana-config-'));

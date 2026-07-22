@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chooseBackend } from '../../skills/kibana-search/lib/backend.js';
-import { createEsClient } from '../../skills/kibana-search/lib/es-client.js';
+import { chooseBackend } from '../../skills/bamhub/integrations/kibana-search/lib/backend.js';
+import { createEsClient } from '../../skills/bamhub/integrations/kibana-search/lib/es-client.js';
 
 test('chooseBackend uses explicit kibana backend when Kibana client is available', () => {
   const backend = chooseBackend(

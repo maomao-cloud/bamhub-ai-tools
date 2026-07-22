@@ -110,7 +110,7 @@ const command = args[0];
 const json = args.includes('--json');
 const profileName = parseOption(args, '--profile');
 const explicitMode = parseOption(args, '--mode');
-const configPath = process.env.SHARED_AUTH_CONFIG || 'skills/shared-auth/.local/auth-config.json';
+const configPath = process.env.SHARED_AUTH_CONFIG || 'skills/bamhub/integrations/shared-auth/.local/auth-config.json';
 
 if (command !== 'login') {
   emit(unsupportedCommand(command), { json });

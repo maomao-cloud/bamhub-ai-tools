@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildKql } from '../../skills/kibana-search/lib/query-builder.js';
+import { buildKql } from '../../skills/bamhub/integrations/kibana-search/lib/query-builder.js';
 
 const fields = {
   serviceField: 'APP_NAME',
