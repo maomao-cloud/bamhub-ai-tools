@@ -86,6 +86,7 @@ LOG_FILE_IS_UNDEFINED
 ### claude worktrees ###
 .worktrees/
 .claude/
+.superpowers/
 skills-lock.json
 
 skills/shared-auth/.local/*
