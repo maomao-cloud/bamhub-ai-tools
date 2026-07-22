@@ -43,7 +43,7 @@ function findFiles(root) {
 }
 
 test('all categorized skill roots contain SKILL.md recursively', () => {
-  for (const root of ['skills/superpowers', 'skills/bamhub', 'skills/project']) {
+  for (const root of ['skills/superpowers', 'skills/caveman', 'skills/bamhub', 'skills/project']) {
     assert.ok(findFiles(root).some((file) => file.endsWith('/SKILL.md')));
   }
 });
@@ -65,14 +65,28 @@ test('legacy brainstorming paths are absent', () => {
   assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/visual-companion.md')), false);
 });
 
-test('repository docs identify source, bamhub, and project skill ownership', () => {
+test('repository docs identify all managed and owned skill roots', () => {
   const agents = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
+  const claude = fs.readFileSync(path.join(repoRoot, 'CLAUDE.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   assert.match(agents, /skills\/superpowers/);
+  assert.match(agents, /skills\/caveman/);
   assert.match(agents, /skills\/bamhub/);
   assert.match(agents, /skills\/project\/sync-upstream-skills/);
   assert.match(agents, /不提供这些兼容路径|旧平级路径/);
   assert.doesNotMatch(agents, /兼容别名/);
   assert.match(agents, /GitHub Actions/);
+  for (const document of [agents, claude, readme]) {
+    assert.match(document, /skills\/caveman/);
+    assert.match(document, /(?:上游 Caveman|上游 \[Caveman\])/);
+    assert.match(document, /(?:禁止直接修改|不要直接修改|不直接编辑)/);
+  }
+  assert.match(readme, /cavecrew/);
+  assert.match(readme, /caveman-stats/);
+  assert.match(readme, /caveman-compress/);
+  assert.match(readme, /运行时集成/);
+  assert.match(readme, /相对链接/);
+  assert.match(readme, /运行时应用数据目录/);
 });
 
 test('scheduled workflow runs hosted checks and opens PRs without local schedulers', () => {

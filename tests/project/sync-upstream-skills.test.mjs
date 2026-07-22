@@ -28,6 +28,56 @@ test('Superpowers target contains only managed skills and its generated README',
   assert.match(readme, /在开始实现前梳理需求、方案和验收标准。/);
 });
 
+test('Caveman target contains the complete managed skill set and generated README', async () => {
+  const root = path.resolve(import.meta.dirname, '../..');
+  const entries = (await fs.readdir(path.join(root, 'skills/caveman'))).sort();
+  const manifest = JSON.parse(await read(root, 'skills/sources.json'));
+  const source = manifest.sources.caveman;
+  const skills = [
+    'cavecrew',
+    'caveman',
+    'caveman-commit',
+    'caveman-compress',
+    'caveman-help',
+    'caveman-review',
+    'caveman-stats'
+  ];
+
+  assert.deepEqual(entries, ['README.md', ...skills]);
+  assert.deepEqual(source, {
+    repository: 'https://github.com/JuliusBrussee/caveman.git',
+    ref: 'main',
+    acceptedCommit: '0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0',
+    acceptedAt: '2026-07-22T10:04:11.489Z',
+    roots: [{ upstream: 'skills', target: 'skills/caveman' }]
+  });
+  for (const skill of skills) {
+    assert.equal(await exists(root, `skills/caveman/${skill}/SKILL.md`), true, skill);
+  }
+  for (const excluded of [
+    '.claude-plugin',
+    'agents',
+    'benchmarks',
+    'commands',
+    'hooks',
+    'install.sh',
+    'integrations',
+    'plugins'
+  ]) {
+    assert.equal(await exists(root, `skills/caveman/${excluded}`), false, excluded);
+  }
+  const readme = await read(root, 'skills/caveman/README.md');
+  assert.match(readme, /# Caveman 技能/);
+  assert.match(readme, new RegExp(`来源: ${source.repository}`));
+  assert.match(readme, new RegExp(`跟踪引用: ${source.ref}`));
+  assert.match(readme, new RegExp(`已接受提交: ${source.acceptedCommit}`));
+  assert.match(readme, new RegExp(`上次成功同步: ${source.acceptedAt}`));
+  const marker = readme.match(/<!-- bamhub-sync-digest: ([a-f0-9]{64}) -->\n$/);
+  assert.ok(marker);
+  const body = readme.slice(0, marker.index);
+  assert.equal(marker[1], createHash('sha256').update(body).digest('hex'));
+});
+
 test('check reports a source update without changing its target or manifest', async (t) => {
   const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
