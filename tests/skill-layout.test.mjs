@@ -91,7 +91,8 @@ test('scheduled workflow keeps sync reports outside the checkout', () => {
 
   assert.match(workflow, /apply --all > "\$RUNNER_TEMP\/sync-report\.json"/);
   assert.match(workflow, /cat "\$RUNNER_TEMP\/sync-report\.json"/);
-  assert.match(workflow, /path: \$RUNNER_TEMP\/sync-report\.json/);
+  assert.match(workflow, /path: \$\{\{ runner\.temp \}\}\/sync-report\.json/);
   assert.doesNotMatch(workflow, /> sync-report\.json/);
   assert.doesNotMatch(workflow, /path: sync-report\.json/);
+  assert.doesNotMatch(workflow, /path: \$RUNNER_TEMP\/sync-report\.json/);
 });

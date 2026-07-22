@@ -38,7 +38,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sync-skills-report
-          path: $RUNNER_TEMP/sync-report.json
+          path: ${{ runner.temp }}/sync-report.json
 
       - if: always()
         uses: peter-evans/create-pull-request@v7
