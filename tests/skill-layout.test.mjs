@@ -59,3 +59,19 @@ test('legacy flat Bamhub skill directories are absent', () => {
     assert.equal(fs.existsSync(path.join(repoRoot, 'skills', name)), false, name);
   }
 });
+
+test('repository docs identify source, bamhub, and project skill ownership', () => {
+  const agents = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /skills\/superpowers/);
+  assert.match(agents, /skills\/bamhub/);
+  assert.match(agents, /skills\/project\/sync-upstream-skills/);
+  assert.match(agents, /GitHub Actions/);
+});
+
+test('scheduled workflow runs hosted checks and opens PRs without local schedulers', () => {
+  const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/sync-skills.yml'), 'utf8');
+  assert.match(workflow, /schedule:/);
+  assert.match(workflow, /workflow_dispatch:/);
+  assert.match(workflow, /create-pull-request/);
+  assert.doesNotMatch(workflow, /launchd|crontab/);
+});

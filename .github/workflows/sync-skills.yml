@@ -1,0 +1,51 @@
+name: Sync upstream skills
+
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - id: sync
+        continue-on-error: true
+        run: |
+          node skills/project/sync-upstream-skills/scripts/sync-skills.mjs apply --all > sync-report.json
+
+      - if: always()
+        name: Publish source report
+        run: |
+          {
+            echo '## Upstream skill sync report'
+            echo '```json'
+            cat sync-report.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-skills-report
+          path: sync-report.json
+
+      - if: always()
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/sync-skills
+          title: 'chore(skills): sync upstream skills'
+          commit-message: 'chore(skills): sync upstream skills'
+
+      - if: steps.sync.outcome == 'failure'
+        run: exit 1
