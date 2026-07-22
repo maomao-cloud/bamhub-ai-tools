@@ -1,0 +1,26 @@
+# 调用期同步摘要设计
+
+## 决策
+
+本说明取代《Skill 分类与上游同步设计》中“将 AI 摘要写入来源 README”的部分。AI 摘要不再写入 `README.md`、`skills/sources.json` 或其他受版本控制的同步状态。
+
+每个受管理目标的 README 始终由同步器确定性生成：来源、接受提交、同步时间、skill 清单，以及由 `git diff --name-status` 得出的文件变更列表。因而 README 可完全由无 AI 凭据的本机或 GitHub Actions 重建。
+
+## 调用期摘要
+
+调用方可在运行 `check` 后，依据该次 JSON 报告和实际检索结果生成面向用户的摘要。该摘要仅属于本次调用的报告输出，不影响 `apply` 的输入、目标目录、README 或清单状态；下次调用按当时的实际来源状态重新生成。
+
+同步 CLI 不持久化摘要，也不需要保存摘要哈希。`--summary-file` 作为 README 输入的行为移除，避免调用期内容参与脏目录判断或后续同步。
+
+## 安全与自动化影响
+
+脏目录检查只比较确定性的上游快照和生成 README；本地 README 改动仍必须使用 `--force` 才能覆盖。对已接受且内容完整的来源，`apply` 是无写入的 `up-to-date` 操作。
+
+GitHub Actions 将来源 JSON 报告写入运行器临时目录、Job Summary 和 artifact，而不把报告放进 checkout，防止无更新时创建空 PR。若需要 AI 摘要，由人工或具备 AI 能力的调用方读取该次报告后另行呈现。
+
+## 验收
+
+- 无摘要参数时的同步、脏目录检测和 README 完全确定；
+- 不再测试或支持摘要文件写入 README；
+- 调用期报告不会改变受管理文件；
+- GitHub Actions 的无更新运行不产生 PR 内容。
