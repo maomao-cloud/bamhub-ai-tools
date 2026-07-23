@@ -7,27 +7,23 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const categorizedSkills = [
-  'skills/bamhub/architecture/code-arch/SKILL.md',
-  'skills/bamhub/architecture/confirming-architecture/SKILL.md',
   'skills/bamhub/architecture/design-retrospective/SKILL.md',
+  'skills/bamhub/architecture/playbook-design/SKILL.md',
   'skills/bamhub/integrations/shared-auth/SKILL.md',
   'skills/bamhub/integrations/kibana-search/SKILL.md',
   'skills/bamhub/maintenance/rule-refine/SKILL.md',
   'skills/bamhub/maintenance/sync-module-doc/SKILL.md',
-  'skills/bamhub/maintenance/version-changelog/SKILL.md',
-  'skills/bamhub/productivity/lyra-prompt-optimizer/SKILL.md'
+  'skills/bamhub/maintenance/version-changelog/SKILL.md'
 ];
 
 const legacyFlatSkills = [
-  'code-arch',
-  'confirming-architecture',
   'design-retrospective',
+  'playbook-design',
   'shared-auth',
   'kibana-search',
   'rule-refine',
   'sync-module-doc',
-  'version-changelog',
-  'lyra-prompt-optimizer'
+  'version-changelog'
 ];
 
 function findFiles(root) {
@@ -49,9 +45,11 @@ test('all categorized skill roots contain SKILL.md recursively', () => {
 });
 
 test('Bamhub skills use the exact categorized paths', () => {
-  for (const skillPath of categorizedSkills) {
-    assert.equal(fs.existsSync(path.join(repoRoot, skillPath)), true, skillPath);
-  }
+  const actualSkills = findFiles('skills/bamhub')
+    .filter((file) => file.endsWith('/SKILL.md'))
+    .sort();
+
+  assert.deepEqual(actualSkills, [...categorizedSkills].sort());
 });
 
 test('legacy flat Bamhub skill directories are absent', () => {

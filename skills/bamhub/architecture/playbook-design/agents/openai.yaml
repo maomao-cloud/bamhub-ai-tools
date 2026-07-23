@@ -1,0 +1,4 @@
+interface:
+  display_name: "Playbook Design"
+  short_description: "Project-aware design discovery"
+  default_prompt: "Use $playbook-design to prepare a project-aware design brief before brainstorming."

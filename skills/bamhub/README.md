@@ -8,22 +8,19 @@ Bamhub 是本仓库自主维护、可在不同项目中复用的 Agent skill 集
 
 | 你的目标 | 使用 skill | 结果 |
 | --- | --- | --- |
-| 理解陌生模块、关键调用链或设计问题 | [`code-arch`](architecture/code-arch/SKILL.md) | 以代码证据支撑的流程、架构或阅读路径说明。 |
-| 已有方案，但还不清楚改哪些边界 | [`confirming-architecture`](architecture/confirming-architecture/SKILL.md) | 明确范围、变更面和架构决策，再进入实现计划。 |
+| 新需求需要先核验项目规则、现有能力或跨模块边界 | [`playbook-design`](architecture/playbook-design/SKILL.md) | 项目基线、多视角证据、待决策项和交给设计/计划流程的约束。 |
 | 从已完成工作提炼可复用经验 | [`design-retrospective`](architecture/design-retrospective/SKILL.md) | 设计原则、结构模式和后续迁移建议。 |
 | 让多个仓库工具共用本地认证约定 | [`shared-auth`](integrations/shared-auth/SKILL.md) | 统一的 profile、凭据位置和登录模式选择。 |
 | 按服务、级别、关键词或 trace ID 查日志 | [`kibana-search`](integrations/kibana-search/SKILL.md) | 保留查询上下文的原始 Kibana 日志。 |
 | 判断经验是否应写入项目规则 | [`rule-refine`](maintenance/rule-refine/SKILL.md) | 最小、可验证的规则候选与落点。 |
 | 让模块文档跟上实际代码 | [`sync-module-doc`](maintenance/sync-module-doc/SKILL.md) | 更新后的模块 `CLAUDE.md` 与差异说明。 |
 | 从 Git 提交生成版本日志 | [`version-changelog`](maintenance/version-changelog/SKILL.md) | 写入约定格式的 changelog 条目。 |
-| 把粗略需求变成可直接使用的提示词 | [`lyra-prompt-optimizer`](productivity/lyra-prompt-optimizer/SKILL.md) | 包含上下文、约束和输出结构的提示词。 |
 
 ## 分类与关系
 
 ```text
 architecture/
-  code-arch                 理解现有实现
-  confirming-architecture   确认方案落点
+  playbook-design            设计前核验项目基线与风险
   design-retrospective      沉淀已完成工作的经验
 
 integrations/
@@ -35,8 +32,6 @@ maintenance/
   sync-module-doc           同步模块说明
   version-changelog         生成版本记录
 
-productivity/
-  lyra-prompt-optimizer     优化面向 AI 的提示词
 ```
 
 ## 使用边界
