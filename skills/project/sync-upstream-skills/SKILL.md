@@ -1,38 +1,38 @@
 ---
 name: sync-upstream-skills
-description: Safely check and mirror configured third-party skill sources into this repository.
+description: 安全检查并镜像配置的第三方 skill 来源到本仓库。
 ---
 
-# Sync upstream skills
+# 同步上游 skill
 
-Use this project-only skill to refresh the source mappings in `skills/sources.json`. It manages only the configured upstream roots and writes a Bamhub-generated `README.md` at each target root.
+使用这个仅服务本仓库的 skill 更新 `skills/sources.json` 中的来源映射。它只管理已配置的上游根目录，并在每个目标根目录生成由 Bamhub 管理的 `README.md`。
 
-## Check before applying
+## 应用前检查
 
-Run a read-only check first:
+先执行只读检查：
 
 ```bash
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs check --source superpowers
 ```
 
-The JSON report is per source. `up-to-date` needs no action, `update-available` can be applied, and `failed` identifies only that source. Check every configured source with `--all`; one failure does not prevent the others from being checked.
+JSON 报告按来源分别输出。`up-to-date` 无需操作，`update-available` 可以应用，`failed` 只标识该来源的问题。使用 `--all` 检查全部已配置来源；某个来源失败不会阻止其他来源被检查。
 
-## Apply an approved update
+## 应用已确认的更新
 
 ```bash
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs apply --source superpowers
 ```
 
-The command replaces the configured target with the selected upstream root, records the accepted commit in `skills/sources.json`, and regenerates its README. Use `--force` only when deliberately discarding local edits under that managed target:
+此命令会用选定的上游根目录替换已配置目标，在 `skills/sources.json` 记录已接受提交，并重新生成其 README。仅在明确要丢弃该受管目标下的本地修改时使用 `--force`：
 
 ```bash
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs apply --source superpowers --force
 ```
 
-The generated README is a deterministic usage guide for the current skill set. An AI-capable caller may read the `check` JSON report and present a per-call summary, but never passes that summary to `apply` or stores it in the repository.
+生成的 README 将同步元数据与 AI 内容分开管理。具备 AI 能力的调用方必须先理解用户的请求，随后才可以在 AI 内容标记之间写入真实、由用户请求的内容；如果没有这类内容，必须保持该区块为空。调用方绝不能编辑元数据标记或其中的元数据。同步器在 `apply` 时会保留有效的 AI 内容。调用方可以读取 `check` 的 JSON 报告并在本次调用中给出摘要，但不得将摘要传给 `apply` 或存入仓库。
 
-Configured upstream roots must be real directories. The synchronizer rejects a symlink root and any nested symlink that resolves outside that root before it stages files. A clean source whose accepted commit is still current is reported as `up-to-date` without rewriting its README or `acceptedAt`.
+配置的上游根目录必须是真实目录。同步器会在暂存文件前拒绝符号链接根目录，以及解析后指向根目录外的嵌套符号链接。已接受提交仍是当前版本且目录干净的来源会报告为 `up-to-date`，不会改写其 README 或 `acceptedAt`。
 
-## Scheduling
+## 定期执行
 
-Scheduled checks belong in GitHub Actions, not a local macOS timer. Review the per-source output and resulting changes before merging any automated update.
+定期检查应由 GitHub Actions 托管，而非在本地 macOS 安装定时器。合并任何自动更新前，请审阅每个来源的输出和产生的改动。

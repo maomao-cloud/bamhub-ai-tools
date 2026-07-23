@@ -7,6 +7,7 @@
 这个仓库是一个 Claude Code skills 仓库，不是传统的应用服务项目。核心资产位于 `skills/`，每个 skill 以 `SKILL.md` 为入口。目录所有权必须保持清晰：
 
 - `skills/superpowers/`：上游 Superpowers 的完整可替换镜像；不要直接修改。
+- `skills/caveman/`：上游 Caveman 的完整可替换镜像；不要直接修改。
 - `skills/bamhub/`：Bamhub 自有、可跨项目复用的 skill，按领域分组。
 - `skills/project/`：只服务本仓库的能力；`skills/project/sync-upstream-skills/` 只管理上游同步，不可作为通用 skill 发布。
 
@@ -100,7 +101,7 @@ node skills/superpowers/writing-skills/render-graphs.js skills/<skill-dir> --com
 
 ### 同步上游 skill
 
-只可通过项目专用的同步 skill 更新镜像：
+只可通过项目专用的同步 skill 更新 `skills/superpowers/` 和 `skills/caveman/` 镜像：
 
 ```bash
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs check --all

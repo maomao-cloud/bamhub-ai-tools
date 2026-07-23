@@ -5,6 +5,27 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const METADATA_START = '<!-- bamhub-sync-metadata:start -->';
+const METADATA_END = '<!-- bamhub-sync-metadata:end -->';
+const CONTENT_START = '<!-- bamhub-sync-content:start -->';
+const CONTENT_END = '<!-- bamhub-sync-content:end -->';
+const LEGACY_SUPERPOWERS_ZH_DESCRIPTIONS = {
+  brainstorming: '在开始实现前梳理需求、方案和验收标准。',
+  'dispatching-parallel-agents': '在多个互不依赖的任务可并行时分派代理。',
+  'executing-plans': '在独立会话中按书面计划执行并保留审查检查点。',
+  'finishing-a-development-branch': '在实现和测试完成后选择合并、PR 或保留分支的交付方式。',
+  'receiving-code-review': '接收审查反馈时先验证问题，再有针对性地修复。',
+  'requesting-code-review': '在完成重要改动后请求独立代码审查。',
+  'subagent-driven-development': '在当前会话中按任务分派实现者并逐项复审。',
+  'systematic-debugging': '遇到故障或意外行为时按系统化步骤定位原因。',
+  'test-driven-development': '实现功能或修复前先编写可失败的测试。',
+  'using-git-worktrees': '开始需要隔离的开发前建立或确认 Git worktree。',
+  'using-superpowers': '每次对话开始时发现并调用适用的 skill。',
+  'verification-before-completion': '在声明完成、提交或创建 PR 前运行新鲜验证。',
+  'writing-plans': '将已确认的需求写成可执行的分步骤计划。',
+  'writing-skills': '创建、修改和验证可复用 skill。'
+};
+
 export class SyncError extends Error {
   constructor(code, message = code) {
     super(message);
@@ -155,12 +176,13 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
     const upstreamRoots = await validateUpstreamRoots(sourceId, source, cloneRoot);
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
-    const targetsMatch = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots);
+    const managedContents = await Promise.all(targetRoots.map((target) => readManagedReadme(target)));
+    const targetState = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots);
 
-    if (!options.force && !targetsMatch) {
+    if (!options.force && !targetState.matches) {
       throw new SyncError('TARGET_DIRTY', `TARGET_DIRTY: source ${sourceId} has local changes under a configured target`);
     }
-    if (targetCommit === currentCommit && targetsMatch) {
+    if (targetCommit === currentCommit && targetState.matches && !targetState.needsReadmeMigration) {
       return {
         status: 'up-to-date',
         currentCommit,
@@ -181,10 +203,15 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
       return stagedRoot;
     }));
     const changed = changedFiles(source, cloneRoot, targetCommit);
-    const acceptedAt = typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString();
-    const readmes = await Promise.all(stagedRoots.map((stagedRoot) => buildReadme({
-      sourceId, source, targetCommit, acceptedAt, stagedRoot
-    })));
+    const acceptedAt = targetCommit === currentCommit
+      ? source.acceptedAt
+      : (typeof io.now === 'function' ? io.now().toISOString() : new Date().toISOString());
+    const readmes = stagedRoots.map((stagedRoot, index) => buildReadme({
+      source,
+      targetCommit,
+      acceptedAt,
+      content: targetState.matches ? targetState.contents[index] : (managedContents[index] ?? '')
+    }));
     const replacements = [];
     try {
       for (let index = 0; index < stagedRoots.length; index += 1) {
@@ -300,33 +327,58 @@ async function validateNestedSymlinks(sourceId, configuredRoot, currentRoot, can
 
 async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
   if (isZeroCommit(source.acceptedCommit)) {
-    return (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists);
+    return {
+      matches: (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists),
+      contents: targetRoots.map(() => ''),
+      needsReadmeMigration: false
+    };
   }
 
   const expectedRoot = path.join(path.dirname(cloneRoot), 'accepted');
   try {
     runGit(['worktree', 'add', '--detach', expectedRoot, source.acceptedCommit], { cwd: cloneRoot });
   } catch {
-    return false;
+    return { matches: false, contents: [], needsReadmeMigration: false };
   }
 
   try {
+    const contents = [];
+    let needsReadmeMigration = false;
     for (let index = 0; index < source.roots.length; index += 1) {
       const target = targetRoots[index];
-      if (!await pathExists(target)) return false;
+      if (!await pathExists(target)) return { matches: false, contents: [], needsReadmeMigration: false };
       const expected = resolveWithin(expectedRoot, source.roots[index].upstream);
-      if (!await directoryDigestMatches(target, expected)) return false;
-      const expectedReadme = await buildReadme({
+      if (!await directoryDigestMatches(target, expected)) {
+        return { matches: false, contents: [], needsReadmeMigration: false };
+      }
+      const content = await readManagedReadme(target);
+      if (content !== null) {
+        const expectedReadme = buildReadme({
+          source,
+          targetCommit: source.acceptedCommit,
+          acceptedAt: source.acceptedAt,
+          content
+        });
+        if (!await readmeMatches(target, expectedReadme)) {
+          return { matches: false, contents: [], needsReadmeMigration: false };
+        }
+        contents.push(content);
+        continue;
+      }
+      const expectedLegacyReadme = await buildLegacyReadme({
         sourceId,
         source,
         targetCommit: source.acceptedCommit,
         acceptedAt: source.acceptedAt,
-        stagedRoot: expected,
-        changedFiles: []
+        stagedRoot: expected
       });
-      if (!await readmeMatches(target, expectedReadme)) return false;
+      if (!await readmeMatches(target, expectedLegacyReadme)) {
+        return { matches: false, contents: [], needsReadmeMigration: false };
+      }
+      contents.push('');
+      needsReadmeMigration = true;
     }
-    return true;
+    return { matches: true, contents, needsReadmeMigration };
   } finally {
     try {
       runGit(['worktree', 'remove', '--force', expectedRoot], { cwd: cloneRoot });
@@ -486,12 +538,48 @@ function changedFiles(source, cloneRoot, targetCommit) {
     .trim().split('\n').filter(Boolean).map((line) => line.replace(/\t/g, ' ')).sort();
 }
 
-async function buildReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot }) {
+function buildReadme({ source, targetCommit, acceptedAt, content }) {
+  return `${METADATA_START}\n来源: ${source.repository}\n跟踪引用: ${source.ref}\n已接受提交: ${targetCommit}\n上次成功同步: ${acceptedAt}\n${METADATA_END}\n${CONTENT_START}\n${content}${CONTENT_END}\n`;
+}
+
+async function readManagedReadme(target) {
+  let readme;
+  try {
+    readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
+  } catch {
+    return null;
+  }
+  return parseManagedReadme(readme);
+}
+
+function parseManagedReadme(readme) {
+  const markers = [METADATA_START, METADATA_END, CONTENT_START, CONTENT_END];
+  const positions = markers.map((marker) => readme.indexOf(marker));
+  if (positions.some((position, index) => position === -1
+    || readme.indexOf(markers[index], position + markers[index].length) !== -1)) {
+    return null;
+  }
+  if (!positions.every((position, index) => index === 0 || positions[index - 1] < position)) return null;
+  if (!readme.startsWith(`${METADATA_START}\n`)) return null;
+  if (readme.slice(positions[1] + METADATA_END.length, positions[2]) !== '\n') return null;
+  if (readme[positions[2] + CONTENT_START.length] !== '\n') return null;
+  if (!readme.endsWith(`${CONTENT_END}\n`)) return null;
+  return readme.slice(positions[2] + CONTENT_START.length + 1, positions[3]);
+}
+
+async function buildLegacyReadme({ sourceId, source, targetCommit, acceptedAt, stagedRoot }) {
   const skills = await listSkills(stagedRoot);
-  const title = `${sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ')} skills`;
-  const availableSkills = skills.map(({ name, description }) => `- \`${name}\` — ${description}`).join('\n');
-  const body = `# ${title}\n\nSource: ${source.repository}\nRef: ${source.ref}\nAccepted commit: ${targetCommit}\nLast successful sync: ${acceptedAt}\n\n## How to use\n\nChoose a skill below, read its complete \`SKILL.md\` and referenced local resources, then follow its instructions.\n\n## Suitable scenarios\n\n${availableSkills}\n\n## General workflow\n\n1. Choose the skill that matches the request.\n2. Read its \`SKILL.md\` and referenced resources.\n3. Follow its workflow and run its required verification.\n`;
+  const sourceTitle = sourceId.split(/[-_]/).map((part) => part ? `${part[0].toUpperCase()}${part.slice(1)}` : '').join(' ');
+  const availableSkills = skills.map(({ name }) => `- \`${name}\` — ${legacySkillDescription(sourceId, name)}`).join('\n');
+  const body = `# ${sourceTitle} 技能\n\n来源: ${source.repository}\n跟踪引用: ${source.ref}\n已接受提交: ${targetCommit}\n上次成功同步: ${acceptedAt}\n\n## 使用方法\n\n从下方选择匹配的 skill，阅读完整 \`SKILL.md\` 与其引用的本地资源，再按说明执行。\n\n## 适用场景\n\n${availableSkills}\n\n## 通用流程\n\n1. 选择与请求匹配的 skill。\n2. 阅读其 \`SKILL.md\` 和引用资源。\n3. 按流程执行，并运行其要求的验证。\n`;
   return `${body}<!-- bamhub-sync-digest: ${digestText(body)} -->\n`;
+}
+
+function legacySkillDescription(sourceId, name) {
+  if (sourceId === 'superpowers' && LEGACY_SUPERPOWERS_ZH_DESCRIPTIONS[name]) {
+    return LEGACY_SUPERPOWERS_ZH_DESCRIPTIONS[name];
+  }
+  return `请阅读 \`${name}/SKILL.md\` 获取完整用法。`;
 }
 
 async function readmeMatches(target, expectedReadme) {

@@ -1,8 +1,8 @@
 <!-- bamhub-sync-metadata:start -->
-来源: https://github.com/obra/superpowers.git
+来源: https://github.com/JuliusBrussee/caveman.git
 跟踪引用: main
-已接受提交: d884ae04edebef577e82ff7c4e143debd0bbec99
-上次成功同步: 2026-07-22T08:08:25.040Z
+已接受提交: 0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0
+上次成功同步: 2026-07-22T10:04:11.489Z
 <!-- bamhub-sync-metadata:end -->
 <!-- bamhub-sync-content:start -->
 <!-- bamhub-sync-content:end -->
