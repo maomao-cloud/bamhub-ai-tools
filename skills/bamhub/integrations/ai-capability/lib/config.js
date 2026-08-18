@@ -1,7 +1,11 @@
 import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { capabilityError } from './errors.js';
 
-const DEFAULT_CONFIG = 'skills/bamhub/integrations/ai-capability/.local/config.json';
+const SKILL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DEFAULT_CONFIG = path.join(SKILL_ROOT, '.local', 'config.json');
 
 export function loadConfig(file = process.env.AI_CAPABILITY_CONFIG || DEFAULT_CONFIG) {
   let parsed;
@@ -33,9 +37,20 @@ export function resolveService(config, name = process.env.AI_CAPABILITY_SERVICE 
   return { ...service, name };
 }
 
-export function resolveApiKey(service, env = process.env) {
+function readKeychain(serviceName) {
+  if (!serviceName) return undefined;
+  try {
+    return execFileSync('security', ['find-generic-password', '-s', serviceName, '-w'], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveApiKey(service, env = process.env, readKeychainValue = readKeychain) {
   const envName = service.apiKeyEnv || 'AI_CAPABILITY_API_KEY';
-  const apiKey = env[envName];
+  const apiKey = env[envName] || readKeychainValue(service.apiKeyKeychainService);
   if (!apiKey || !String(apiKey).trim()) {
     throw capabilityError(
       'AUTH_API_KEY_MISSING',

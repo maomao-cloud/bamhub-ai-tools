@@ -38,9 +38,13 @@ There is no remote `/search` or `/detail/{code}` endpoint.
 Copy `templates/config.example.json` to `.local/config.json` and set a service `baseUrl`. Keep the API key outside Git, preferably in the environment variable named by `apiKeyEnv`:
 
 ```bash
-export AI_CAPABILITY_CONFIG=skills/bamhub/integrations/ai-capability/.local/config.json
 export AI_CAPABILITY_API_KEY='provided-out-of-band'
 ```
+
+The default local configuration is alongside this Skill in `.local/config.json`, so the
+commands also work when the Skill is invoked through a symbolic link from another repository.
+On macOS, `apiKeyKeychainService` can keep the key in Keychain; an explicitly exported
+`AI_CAPABILITY_API_KEY` takes precedence.
 
 The shared client sends the configured key on **every** page-list, page-detail, and invoke request, using `X-API-KEY` by default. Do not put the key in `arguments`, URLs, committed files, output, or logs. A missing or rejected key is a stop condition; do not retry anonymously or guess another key.
 

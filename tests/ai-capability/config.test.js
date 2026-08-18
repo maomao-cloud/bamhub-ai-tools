@@ -40,3 +40,28 @@ test('rejects missing API key without revealing the configured key name as a sec
     return true;
   });
 });
+
+test('loads the API key from the configured local keychain service when environment is empty', () => {
+  const service = {
+    baseUrl: 'https://ai.example.com/api/open',
+    apiKeyEnv: 'TEST_AI_KEY',
+    apiKeyKeychainService: 'test-ai-capability'
+  };
+
+  assert.equal(resolveApiKey(service, {}, () => 'keychain-value'), 'keychain-value');
+});
+
+test('loads the bundled local configuration when invoked outside the repository root', () => {
+  const previous = process.env.AI_CAPABILITY_CONFIG;
+  const cwd = process.cwd();
+  delete process.env.AI_CAPABILITY_CONFIG;
+  try {
+    process.chdir(os.tmpdir());
+    const config = loadConfig();
+    assert.equal(config.defaultService, 'bamboo');
+  } finally {
+    process.chdir(cwd);
+    if (previous === undefined) delete process.env.AI_CAPABILITY_CONFIG;
+    else process.env.AI_CAPABILITY_CONFIG = previous;
+  }
+});
