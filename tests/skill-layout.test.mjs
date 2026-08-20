@@ -9,6 +9,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const categorizedSkills = [
   'skills/bamhub/architecture/design-retrospective/SKILL.md',
   'skills/bamhub/architecture/playbook-design/SKILL.md',
+  'skills/bamhub/integrations/ai-capability/SKILL.md',
   'skills/bamhub/integrations/shared-auth/SKILL.md',
   'skills/bamhub/integrations/kibana-search/SKILL.md',
   'skills/bamhub/maintenance/rule-refine/SKILL.md',
