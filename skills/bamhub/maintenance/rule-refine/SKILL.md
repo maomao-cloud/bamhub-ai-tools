@@ -28,8 +28,8 @@ argument-hint: [topic or file]
 
 1. **去重**
    - 先对比现有规则文件，判断该内容是否已经被覆盖：
-     - `CLAUDE.md`
-     - `.claude/rules/*.md`
+     - `<repo>/.project/README.md`
+     - `<repo>/.project/rules/*.md`
    - 如果只是把现有规则换一种说法，不新增规则，优先建议改写原规则
 
 2. **去特定化**
@@ -118,6 +118,8 @@ argument-hint: [topic or file]
 5. 先把候选规则列表发给用户确认，不要直接改文件
 
 6. 用户确认后，再更新对应规则文件：
+   - 先阅读 `<repo>/.project/README.md`，确认规则索引、优先级和适用范围
+   - 如果 `<repo>/.project/rules/` 不存在，说明项目尚未采用该布局并请求用户提供规则目标位置；不得创建 `.claude/`、`.codex/` 或其他工具私有规则目录
    - 优先修改最合适的现有规则文件
    - 非必要不新增规则文件
    - 保持原文件风格与章节语气一致
