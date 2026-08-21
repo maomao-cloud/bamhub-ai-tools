@@ -64,6 +64,24 @@ test('legacy brainstorming paths are absent', () => {
   assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/visual-companion.md')), false);
 });
 
+test('rule-refine keeps neutral governance routing', () => {
+  const ruleRefine = fs.readFileSync(
+    path.join(repoRoot, 'skills/bamhub/maintenance/rule-refine/SKILL.md'),
+    'utf8'
+  );
+
+  assert.match(ruleRefine, /<repo>\/\.project\/rules\/\*\.md/);
+  assert.match(ruleRefine, /<repo>\/\.project\/README\.md/);
+  assert.match(ruleRefine, /<module>\/README\.md/);
+  assert.match(ruleRefine, /事实规则/);
+  assert.match(ruleRefine, /决策规则/);
+  assert.match(ruleRefine, /偏好原则/);
+  assert.match(ruleRefine, /删除该条内容/);
+  assert.match(ruleRefine, /不得创建 `\.claude\/`、`\.codex\//);
+  assert.match(ruleRefine, /稳定的模块职责、边界和依赖事实应归入模块 README/);
+  assert.match(ruleRefine, /项目索引或模块 README 候选保留可由证据支撑的稳定事实/);
+});
+
 test('repository docs identify all managed and owned skill roots', () => {
   const agents = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
   const claude = fs.readFileSync(path.join(repoRoot, 'CLAUDE.md'), 'utf8');
