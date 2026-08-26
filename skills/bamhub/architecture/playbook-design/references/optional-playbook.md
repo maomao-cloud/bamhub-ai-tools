@@ -1,8 +1,8 @@
-# Optional Playbook Records
+# 可选项目手册记录
 
-Use process records only for multi-session, long-running, or high-risk work where the next session cannot safely reconstruct the evidence and decisions from the spec, plan, and project rules alone. Do not create them for routine work.
+仅当工作跨多个会话、持续时间长或风险高，且下一次会话无法仅凭规格、计划和项目规则安全还原证据与决策时，才使用过程记录。不要为常规工作创建它们。
 
-## Minimal Layout
+## 最小目录结构
 
 ```text
 playbook/
@@ -11,11 +11,11 @@ playbook/
     open-questions.md
 ```
 
-`session.md` contains the current phase, evidence sources, decisions, and links to the formal spec and plan. `open-questions.md` contains only unresolved questions, their impact, and the default assumption when one exists.
+`session.md` 包含当前阶段、证据来源、决策以及正式规格和计划的链接。`open-questions.md` 仅包含未解决问题、其影响和已有时的默认假设。
 
-## Boundaries
+## 边界
 
-- Do not duplicate the formal spec, implementation plan, or raw conversation.
-- Do not treat playbook records as authoritative rules.
-- Remove resolved questions from `open-questions.md` and retain their final decision in the formal spec or session summary.
-- Send repeatable rule candidates to `rule-refine`; do not create a parallel rules registry here.
+- 不要复制正式规格、实施计划或原始对话。
+- 不要将项目手册记录视为权威规则。
+- 从 `open-questions.md` 中移除已解决问题，并在正式规格或会话摘要中保留其最终决策。
+- 将可重复的规则候选交给 `rule-refine`；不要在此创建平行的规则登记册。

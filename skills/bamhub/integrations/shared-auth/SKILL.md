@@ -1,34 +1,34 @@
 ---
 name: shared-auth
-description: Reusable repository-local auth skill for GUI and headless login flows.
+description: 当仓库工具需要可复用的仓库本地认证能力，以支持 GUI 或无头登录流程时使用
 ---
 
-# Shared Auth
+# 共享认证
 
-## Overview
+## 概述
 
-Use this skill when a repository tool needs an authenticated browser or API session without storing credentials in global Claude state. All runtime files stay under this repository so Claude Code and hermes-agent can share the same local auth profiles.
+当仓库工具需要已认证的浏览器或 API 会话，但不希望将凭证存入全局 Claude 状态时，使用此 skill。所有运行时文件均保留在当前仓库内，使 Claude Code 和 hermes-agent 能共享同一组本地认证配置文件。
 
-Keep auth config, cookies, tokens, and credential material in the repository-local runtime files below, not in home-directory locations.
+将认证配置、Cookie、令牌和凭证材料保存在下列仓库本地运行时文件中，不要放在用户主目录。
 
-## Runtime Files
+## 运行时文件
 
-- Config: `skills/bamhub/integrations/shared-auth/.local/auth-config.json`
-- Credentials: `skills/bamhub/integrations/shared-auth/.local/credentials.json`
-- Example config: `skills/bamhub/integrations/shared-auth/templates/auth-config.example.json`
-- CLI: `skills/bamhub/integrations/shared-auth/scripts/auth`
+- 配置：`skills/bamhub/integrations/shared-auth/.local/auth-config.json`
+- 凭证：`skills/bamhub/integrations/shared-auth/.local/credentials.json`
+- 配置示例：`skills/bamhub/integrations/shared-auth/templates/auth-config.example.json`
+- CLI：`skills/bamhub/integrations/shared-auth/scripts/auth`
 
-`skills/bamhub/integrations/shared-auth/.local/` is the only expected runtime location for this skill. Keep it local, private, and out of commits except placeholder files such as `.gitkeep`.
+`skills/bamhub/integrations/shared-auth/.local/` 是此 skill 唯一预期的运行时位置。保持其本地化、私有化，且不要提交到 Git；仅 `.gitkeep` 等占位文件除外。
 
-## Login Command
+## 登录命令
 
-Run login from the repository root:
+从仓库根目录执行登录：
 
 ```bash
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name>
 ```
 
-Useful options:
+常用选项：
 
 ```bash
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name> --mode auto
@@ -37,18 +37,18 @@ bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profil
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name> --json
 ```
 
-If `SHARED_AUTH_CONFIG` is unset, the CLI reads `skills/bamhub/integrations/shared-auth/.local/auth-config.json`. If `SHARED_AUTH_CREDENTIALS` is unset, repository tools should use `skills/bamhub/integrations/shared-auth/.local/credentials.json`.
+若未设置 `SHARED_AUTH_CONFIG`，CLI 读取 `skills/bamhub/integrations/shared-auth/.local/auth-config.json`。若未设置 `SHARED_AUTH_CREDENTIALS`，仓库工具应使用 `skills/bamhub/integrations/shared-auth/.local/credentials.json`。
 
-## Headless and Import Guidance
+## 无头与导入模式指引
 
-Use `--mode headless` when the current runtime cannot launch an interactive browser but can provide instructions for completing login elsewhere. The command will tell the operator to complete provider login in an external browser, then import the authenticated session.
+当前运行环境无法启动交互式浏览器、但可提供在其他位置完成登录的指引时，使用 `--mode headless`。命令会提示操作者在外部浏览器中完成提供方登录，再导入已认证会话。
 
-Use `--mode import` when the session already exists and the operator can provide captured cookies or required auth headers. Store the resulting credential only in `skills/bamhub/integrations/shared-auth/.local/credentials.json`.
+会话已存在且操作者能够提供捕获的 Cookie 或所需认证请求头时，使用 `--mode import`。仅将生成的凭证保存在 `skills/bamhub/integrations/shared-auth/.local/credentials.json`。
 
-For hermes-agent, CI-like shells, remote terminals, or other headless systems, prefer `headless` or `import` instead of attempting a GUI browser flow.
+对于 hermes-agent、类 CI shell、远程终端或其他无头系统，应优先使用 `headless` 或 `import`，而不是尝试 GUI 浏览器流程。
 
-## Common Mistakes
+## 常见错误
 
-- Using home-directory auth material. Keep credentials in `skills/bamhub/integrations/shared-auth/.local/credentials.json`.
-- Running a dependent tool before login. Login first with the exact profile referenced by that tool's config.
-- Assuming GUI login is available. If browser launch is unavailable, use `--mode headless` or `--mode import`.
+- 使用用户主目录下的认证材料。应将凭证保留在 `skills/bamhub/integrations/shared-auth/.local/credentials.json`。
+- 在登录前运行依赖工具。应先使用该工具配置中引用的准确配置文件登录。
+- 假定 GUI 登录可用。若无法启动浏览器，使用 `--mode headless` 或 `--mode import`。

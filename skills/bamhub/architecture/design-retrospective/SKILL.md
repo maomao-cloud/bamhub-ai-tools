@@ -1,6 +1,6 @@
 ---
 name: design-retrospective
-description: Use when the user explicitly asks for a retrospective on recent work to extract reusable design principles, structural patterns, and future migration guidance for upcoming requirements or other projects
+description: 当用户明确要求复盘近期工作，以提炼可复用的设计原则、结构模式，以及面向后续需求或其他项目的迁移指导时使用
 ---
 
 # 设计复盘

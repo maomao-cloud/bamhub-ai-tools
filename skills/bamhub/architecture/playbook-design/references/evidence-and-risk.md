@@ -1,54 +1,54 @@
-# Evidence and Risk Views
+# 证据与风险视角
 
-Read this reference for Standard or Deep `playbook-design` work. Select only views that can change the design brief.
+在进行标准或深度 `playbook-design` 工作时阅读本参考。仅选择能够改变设计简报的分析视角。
 
-## Evidence Rules
+## 证据规则
 
-| Claim | Minimum evidence | Label when evidence is absent |
+| 主张 | 最低证据要求 | 缺少证据时的标记 |
 | --- | --- | --- |
-| Existing capability | Entry point, implementation, or contract in the current repository | Open |
-| Project convention | Applicable instruction file or approved specification | Open |
-| Cross-module contract | Provider API/contract and consumer use | Inferred |
-| Acceptance condition | User request, approved spec, or testable project rule | Open |
+| 现有能力 | 当前仓库中的入口点、实现或契约 | 待确认 |
+| 项目约定 | 适用的指引文件或获批规格 | 待确认 |
+| 跨模块契约 | 提供方 API／契约与消费者使用情况 | 推断 |
+| 验收条件 | 用户请求、获批规格或可测试的项目规则 | 待确认 |
 
-Do not promote an inference to a design lock. Record the source path or other concrete evidence for every verified claim.
+不要将推断提升为设计锁定项。为每项已验证主张记录源文件路径或其他具体证据。
 
-## Select Views by Observable Risk
+## 按可观察风险选择视角
 
-| Signal | Add this view | Verify |
+| 信号 | 增加的视角 | 验证内容 |
 | --- | --- | --- |
-| New module or cross-module call | Boundary and integration | Ownership, existing contract, caller/provider semantics |
-| Write, state transition, batch processing, or retry | State and operations | Idempotency, transaction scope, failure isolation, pagination or batching |
-| External API, event, queue, or scheduled work | Integration and operations | Timeout, retry, ownership, observability, compensating behavior |
-| Permission, tenant, or sensitive data | Security | Access boundary, data isolation, audit expectations |
-| New query, sort, filter, or data shape | Data and validation | Existing query semantics, contract compatibility, performance constraints |
-| User-visible workflow | Validation | Acceptance criteria, empty/error paths, backward compatibility |
+| 新模块或跨模块调用 | 边界与集成 | 所有权、现有契约、调用方／提供方语义 |
+| 写操作、状态转换、批处理或重试 | 状态与运行 | 幂等性、事务范围、故障隔离、分页或批处理 |
+| 外部 API、事件、队列或定时任务 | 集成与运行 | 超时、重试、所有权、可观测性、补偿行为 |
+| 权限、租户或敏感数据 | 安全 | 访问边界、数据隔离、审计预期 |
+| 新查询、排序、筛选或数据形态 | 数据与验证 | 现有查询语义、契约兼容性、性能约束 |
+| 用户可见的工作流 | 验证 | 验收标准、空值／错误路径、向后兼容性 |
 
-## View Output Contract
+## 视角输出契约
 
-Each selected view returns only:
+每个选定视角仅返回：
 
 ```text
-Question answered:
-Evidence checked:
-Verified facts:
-Open risk or decision:
-Constraint for the design brief:
+已回答的问题：
+已检查的证据：
+已验证事实：
+待确认的风险或决策：
+设计简报的约束：
 ```
 
-Do not repeat the user request or propose an implementation outside the assigned evidence scope.
+不要重复用户请求，也不要提出超出已分配证据范围的实现方案。
 
-## Conflict Handling
+## 冲突处理
 
-1. Verify whether the conflict is factual, a rule conflict, or a scope choice.
-2. Resolve factual conflicts by inspecting the source of truth.
-3. For intended behavior, apply the precedence in `playbook-design`; current code is evidence of the baseline, not a veto on an approved change.
-4. Escalate one focused decision only if the result would change value, scope, acceptance, or an irreversible commitment.
+1. 确认冲突是事实冲突、规则冲突还是范围选择。
+2. 通过检查事实来源解决事实冲突。
+3. 对预期行为，应用 `playbook-design` 中的优先级；当前代码是基线证据，而非否决已批准变更的理由。
+4. 仅当结果会改变价值、范围、验收或不可逆承诺时，才升级为一个聚焦的决策问题。
 
-## Design-Lock Examples
+## 设计锁定项示例
 
-| Evidence | Valid lock | Invalid lock |
+| 证据 | 有效锁定项 | 无效锁定项 |
 | --- | --- | --- |
-| Approved spec permits CSV only | Plan must use the existing CSV contract; do not add formats without a spec revision. | Add Excel later if it seems useful. |
-| Existing provider has one supported query shape | Plan must use that query shape or revise the provider contract first. | Consumer may invent an extra filter. |
-| Batch work scans a large collection | Plan must specify batching, failure isolation, and retry behavior. | Use a new queue because it is more scalable. |
+| 获批规格仅允许 CSV | 计划必须使用现有 CSV 契约；未经规格修订不得添加格式。 | 如果看似有用，后续再添加 Excel。 |
+| 现有提供方仅支持一种查询形态 | 计划必须使用该查询形态，或先修订提供方契约。 | 消费者可以自行增加筛选条件。 |
+| 批量工作扫描大型集合 | 计划必须明确批处理、故障隔离和重试行为。 | 因为更具扩展性而使用新的队列。 |

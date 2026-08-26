@@ -1,4 +1,4 @@
-# Bamhub Skills
+# Bamhub 技能集
 
 Bamhub 是本仓库自主维护、可在不同项目中复用的 Agent skill 集合。它补充上游流程 skill：一部分帮助理解与沉淀工程知识，一部分提供可运行的本地集成能力。
 
