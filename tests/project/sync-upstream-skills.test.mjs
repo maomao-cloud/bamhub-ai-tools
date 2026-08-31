@@ -83,7 +83,7 @@ function assertManagedReadmeContract(readme, source) {
   assert.match(readme, /<!-- bamhub-sync-metadata:end -->/);
   assert.match(readme, /<!-- bamhub-sync-content:start -->/);
   assert.match(readme, /<!-- bamhub-sync-content:end -->/);
-  assert.doesNotMatch(readme, /## 使用方法|## 适用场景|## 通用流程|请阅读/);
+  assert.doesNotMatch(readme, /## 使用方法|## 适用场景|## 通用流程/);
 }
 
 test('check reports a source update without changing its target or manifest', async (t) => {

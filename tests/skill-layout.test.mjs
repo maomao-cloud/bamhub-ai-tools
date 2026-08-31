@@ -7,29 +7,26 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const categorizedSkills = [
-  'skills/bamhub/architecture/code-arch/SKILL.md',
-  'skills/bamhub/architecture/confirming-architecture/SKILL.md',
   'skills/bamhub/architecture/design-retrospective/SKILL.md',
+  'skills/bamhub/architecture/playbook-design/SKILL.md',
+  'skills/bamhub/integrations/ai-capability/SKILL.md',
   'skills/bamhub/integrations/shared-auth/SKILL.md',
   'skills/bamhub/integrations/kibana-search/SKILL.md',
   'skills/bamhub/maintenance/rule-refine/SKILL.md',
   'skills/bamhub/maintenance/code-simplification-review/SKILL.md',
   'skills/bamhub/maintenance/project-finish-quality-gate/SKILL.md',
   'skills/bamhub/maintenance/sync-module-doc/SKILL.md',
-  'skills/bamhub/maintenance/version-changelog/SKILL.md',
-  'skills/bamhub/productivity/lyra-prompt-optimizer/SKILL.md'
+  'skills/bamhub/maintenance/version-changelog/SKILL.md'
 ];
 
 const legacyFlatSkills = [
-  'code-arch',
-  'confirming-architecture',
   'design-retrospective',
+  'playbook-design',
   'shared-auth',
   'kibana-search',
   'rule-refine',
   'sync-module-doc',
-  'version-changelog',
-  'lyra-prompt-optimizer'
+  'version-changelog'
 ];
 
 function findFiles(root) {
@@ -51,9 +48,11 @@ test('all categorized skill roots contain SKILL.md recursively', () => {
 });
 
 test('Bamhub skills use the exact categorized paths', () => {
-  for (const skillPath of categorizedSkills) {
-    assert.equal(fs.existsSync(path.join(repoRoot, skillPath)), true, skillPath);
-  }
+  const actualSkills = findFiles('skills/bamhub')
+    .filter((file) => file.endsWith('/SKILL.md'))
+    .sort();
+
+  assert.deepEqual(actualSkills, [...categorizedSkills].sort());
 });
 
 test('Bamhub finish skills reference the Addy upstream without importing runtime hooks', () => {
@@ -76,6 +75,24 @@ test('legacy flat Bamhub skill directories are absent', () => {
 test('legacy brainstorming paths are absent', () => {
   assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming')), false);
   assert.equal(fs.existsSync(path.join(repoRoot, 'skills/brainstorming/visual-companion.md')), false);
+});
+
+test('rule-refine keeps neutral governance routing', () => {
+  const ruleRefine = fs.readFileSync(
+    path.join(repoRoot, 'skills/bamhub/maintenance/rule-refine/SKILL.md'),
+    'utf8'
+  );
+
+  assert.match(ruleRefine, /<repo>\/\.project\/rules\/\*\.md/);
+  assert.match(ruleRefine, /<repo>\/\.project\/README\.md/);
+  assert.match(ruleRefine, /<module>\/README\.md/);
+  assert.match(ruleRefine, /事实规则/);
+  assert.match(ruleRefine, /决策规则/);
+  assert.match(ruleRefine, /偏好原则/);
+  assert.match(ruleRefine, /删除该条内容/);
+  assert.match(ruleRefine, /不得创建 `\.claude\/`、`\.codex\//);
+  assert.match(ruleRefine, /稳定的模块职责、边界和依赖事实应归入模块 README/);
+  assert.match(ruleRefine, /项目索引或模块 README 候选保留可由证据支撑的稳定事实/);
 });
 
 test('repository docs identify all managed and owned skill roots', () => {

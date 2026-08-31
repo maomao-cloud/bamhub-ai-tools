@@ -1,0 +1,12 @@
+{
+  "defaultService": "bamboo",
+  "services": {
+    "bamboo": {
+      "baseUrl": "https://example.com/api/open",
+      "apiKeyEnv": "AI_CAPABILITY_API_KEY",
+      "apiKeyKeychainService": "bamhub-ai-capability",
+      "apiKeyHeader": "X-API-KEY",
+      "timeoutMs": 30000
+    }
+  }
+}
