@@ -1,0 +1,12 @@
+[
+  {
+    "id": "block-release-on-failed-verification",
+    "prompt": "功能已经完成，代码审查也没有意见，但完整测试失败。请直接进入 release 并生成变更日志。",
+    "expected": "应输出 BLOCKED，停止 release；先按 systematic-debugging 定位失败原因，不能以旧证据或审查结果替代新验证。"
+  },
+  {
+    "id": "audit-small-change-without-rule-churn",
+    "prompt": "请对一个小型 bugfix 执行默认 audit：测试通过，只有局部空值判断修复，模块入口和职责边界都没有改变。",
+    "expected": "应执行只读审计与证据汇总，可报告可选简化；不得自动调用 rule-refine、sync-module-doc 或变更日志，也不得修改代码。"
+  }
+]
