@@ -2,9 +2,9 @@
 
 ## 项目结构与模块组织
 
-本仓库是一组 AI Agent skill，而非单一应用。skill 按所有权分为四类：`skills/superpowers/` 是上游 Superpowers 的完整本地镜像，禁止直接修改；`skills/caveman/` 是上游 Caveman 的完整 skill 镜像，禁止直接修改；`skills/addyosmani/` 是上游 Addy Osmani agent-skills 的完整 skill 镜像，禁止直接修改；`skills/bamhub/` 是可复用的 Bamhub 自有 skill，按领域分组；`skills/project/` 存放仅服务本仓库的能力，例如 `skills/project/sync-upstream-skills/`。每个 skill 以 `SKILL.md` 为入口；辅助脚本放在 `scripts/`，JavaScript 模块放在 `lib/`，示例或模板放在 `examples/` 或 `templates/`。测试在 `tests/` 中按领域组织。
+本仓库是一组 AI Agent skill，而非单一应用。skill 按所有权分为五类：`skills/superpowers/` 是上游 Superpowers 的完整本地镜像，禁止直接修改；`skills/caveman/` 是上游 Caveman 的完整 skill 镜像，禁止直接修改；`skills/addyosmani/` 是上游 Addy Osmani agent-skills 的完整 skill 镜像，禁止直接修改；`skills/darwin/` 是上游 Darwin skill 的完整镜像，禁止直接修改；`skills/bamhub/` 是可复用的 Bamhub 自有 skill，按领域分组；`skills/project/` 存放仅服务本仓库的能力，例如 `skills/project/sync-upstream-skills/` 与 Darwin 的本仓库适配层 `skills/project/darwin-skill-optimizer/`。每个 skill 以 `SKILL.md` 为入口；辅助脚本放在 `scripts/`，JavaScript 模块放在 `lib/`，示例或模板放在 `examples/` 或 `templates/`。测试在 `tests/` 中按领域组织。
 
-上游镜像可能引用旧平级路径，但本仓库不提供这些兼容路径；应使用 `skills/superpowers/`、`skills/caveman/`、`skills/addyosmani/`、`skills/bamhub/` 和 `skills/project/` 下的分类目录。
+上游镜像可能引用旧平级路径，但本仓库不提供这些兼容路径；应使用 `skills/superpowers/`、`skills/caveman/`、`skills/addyosmani/`、`skills/darwin/`、`skills/bamhub/` 和 `skills/project/` 下的分类目录。Darwin 不含内置 hook、专用 agent、MCP server 或常驻后台进程；独立评委由调用它的运行时派生。
 
 编辑 skill 前，须阅读完整的 `SKILL.md` 及其引用的所有本地文件。修改行为时，应保持说明、引用文档、模板与脚本一致。仅适用于本仓库、无法复用的约定应写入 `CLAUDE.md`。
 

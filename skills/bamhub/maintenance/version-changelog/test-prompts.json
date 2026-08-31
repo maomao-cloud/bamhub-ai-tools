@@ -1,0 +1,12 @@
+[
+  {
+    "id": "no-branch-difference",
+    "prompt": "执行 version-changelog；当前分支相对 master 没有任何提交差异。",
+    "expected": "应返回无可记录变更，且不得创建或修改 doc/CHANGELOG.md。"
+  },
+  {
+    "id": "categorize-feature-and-fix",
+    "prompt": "执行 version-changelog；master..HEAD 包含 feat: add export endpoint（bamboo-biz/export）和 fix: handle empty import（bamboo-framework/import）。",
+    "expected": "应按比较范围收集提交和文件，分别生成新特性&优化与 Bug修复条目，并在每条中标识模块。"
+  }
+]

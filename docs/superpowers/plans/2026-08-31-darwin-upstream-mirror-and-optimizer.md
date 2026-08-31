@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 不直接改 `skills/superpowers/`、`skills/caveman/` 或 `skills/darwin/`。
-- Darwin source：`https://github.com/alchaincyf/darwin-skill.git`、`main`、`5539516444cff4eed7865daf61a707590acda485`。
+- Darwin source：`https://github.com/alchaincyf/darwin-skill.git`、`master`、`5539516444cff4eed7865daf61a707590acda485`。
 - Darwin 元数据固定为 `skills/darwin/.bamhub-sync.md`；上游 `README.md` 逐字保留。
 - 优化范围仅 `skills/bamhub/**/SKILL.md`；首批 `skills/bamhub/maintenance/**/SKILL.md`。
 - 未严格提升时只用 `git revert`，禁止 `git reset --hard`。
@@ -95,7 +95,7 @@ Expected: FAIL，Darwin 尚未注册。
 ```json
 "darwin": {
   "repository": "https://github.com/alchaincyf/darwin-skill.git",
-  "ref": "main",
+  "ref": "master",
   "acceptedCommit": "5539516444cff4eed7865daf61a707590acda485",
   "acceptedAt": "2026-08-31T00:00:00.000Z",
   "metadataFile": ".bamhub-sync.md",

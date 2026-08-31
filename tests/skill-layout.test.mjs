@@ -43,7 +43,7 @@ function findFiles(root) {
 }
 
 test('all categorized skill roots contain SKILL.md recursively', () => {
-  for (const root of ['skills/superpowers', 'skills/caveman', 'skills/bamhub', 'skills/project']) {
+  for (const root of ['skills/superpowers', 'skills/caveman', 'skills/addyosmani', 'skills/darwin', 'skills/bamhub', 'skills/project']) {
     assert.ok(findFiles(root).some((file) => file.endsWith('/SKILL.md')));
   }
 });
@@ -54,6 +54,13 @@ test('Bamhub skills use the exact categorized paths', () => {
     .sort();
 
   assert.deepEqual(actualSkills, [...categorizedSkills].sort());
+});
+
+test('project skills use the exact categorized paths', () => {
+  assert.equal(
+    fs.existsSync(path.join(repoRoot, 'skills/project/darwin-skill-optimizer/SKILL.md')),
+    true
+  );
 });
 
 test('Bamhub finish skills reference the Addy upstream without importing runtime hooks', () => {
@@ -96,12 +103,35 @@ test('rule-refine keeps neutral governance routing', () => {
   assert.match(ruleRefine, /项目索引或模块 README 候选保留可由证据支撑的稳定事实/);
 });
 
+test('Darwin optimizer maps upstream workflow to Bamhub-owned skill paths', () => {
+  const optimizer = fs.readFileSync(
+    path.join(repoRoot, 'skills/project/darwin-skill-optimizer/SKILL.md'),
+    'utf8'
+  );
+  for (const required of [
+    'skills/darwin/SKILL.md',
+    'skills/bamhub/**/SKILL.md',
+    'skills/bamhub/maintenance/**/SKILL.md',
+    'docs/skill-optimization/results.tsv',
+    'docs/skill-optimization/cards/',
+    'test-prompts.json',
+    'git revert',
+    'full_test',
+    'dry_run'
+  ]) assert.match(optimizer, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  for (const excluded of ['skills/superpowers/', 'skills/caveman/', 'skills/darwin/']) {
+    assert.match(optimizer, new RegExp(`不得优化.*${excluded.replace('/', '\\/')}`));
+  }
+  assert.match(optimizer, /用户确认|CHECKPOINT/);
+});
+
 test('repository docs identify all managed and owned skill roots', () => {
   const agents = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
   const claude = fs.readFileSync(path.join(repoRoot, 'CLAUDE.md'), 'utf8');
   const readme = fs.readFileSync(path.join(repoRoot, 'README.md'), 'utf8');
   assert.match(agents, /skills\/superpowers/);
   assert.match(agents, /skills\/caveman/);
+  assert.match(agents, /skills\/darwin/);
   assert.match(agents, /skills\/bamhub/);
   assert.match(agents, /skills\/project\/sync-upstream-skills/);
   assert.match(agents, /不提供这些兼容路径|旧平级路径/);
@@ -111,6 +141,7 @@ test('repository docs identify all managed and owned skill roots', () => {
     assert.match(document, /skills\/caveman/);
     assert.match(document, /(?:上游 Caveman|上游 \[Caveman\])/);
     assert.match(document, /(?:禁止直接修改|不要直接修改|不直接编辑)/);
+    assert.match(document, /(?:上游 Darwin|上游 \[Darwin\])/);
   }
   assert.match(readme, /cavecrew/);
   assert.match(readme, /caveman-stats/);

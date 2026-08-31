@@ -25,6 +25,19 @@
         }
       ]
     },
+    "darwin": {
+      "repository": "https://github.com/alchaincyf/darwin-skill.git",
+      "ref": "master",
+      "acceptedCommit": "5539516444cff4eed7865daf61a707590acda485",
+      "acceptedAt": "2026-08-31T10:51:59.864Z",
+      "metadataFile": ".bamhub-sync.md",
+      "roots": [
+        {
+          "upstream": ".",
+          "target": "skills/darwin"
+        }
+      ]
+    },
     "addyosmani-agent-skills": {
       "repository": "https://github.com/addyosmani/agent-skills.git",
       "ref": "main",

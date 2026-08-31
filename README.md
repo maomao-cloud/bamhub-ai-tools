@@ -7,11 +7,15 @@
 - `skills/superpowers/`：上游 Superpowers 的完整本地镜像；通过同步工具更新，不直接编辑。
 - `skills/caveman/`：上游 [Caveman](https://github.com/JuliusBrussee/caveman) 的完整 skill 镜像；通过同步工具更新，不直接编辑。
 - `skills/addyosmani/`：上游 [Addy Osmani agent-skills](https://github.com/addyosmani/agent-skills) 的完整 skill 镜像；通过同步工具更新，不直接编辑。
+- `skills/darwin/`：上游 Darwin skill（[Darwin skill](https://github.com/alchaincyf/darwin-skill)）的完整镜像；通过同步工具更新，不直接编辑。
 - `skills/bamhub/`：Bamhub 自有、可复用的 skill，按架构、集成、维护和效率分类；见其 [品牌说明](skills/bamhub/README.md)。
 - `skills/project/`：仅服务当前仓库的 skill；[同步上游 skill](skills/project/sync-upstream-skills/SKILL.md) 位于此处。
 - `tests/`：Node 内置测试，按对应领域组织。
 
 项目收尾质量门禁位于 `skills/bamhub/maintenance/project-finish-quality-gate/`，代码简化适配位于 `skills/bamhub/maintenance/code-simplification-review/`。
+
+Darwin 是一套由 Agent 执行的 skill 优化流程，未提供内置 hook、专用 agent、MCP server 或常驻后台进程；其独立评委由运行时按流程派生。
+本仓库通过 `skills/project/darwin-skill-optimizer/` 将 Darwin 流程限定到 Bamhub 自有 skill。
 
 `skills/brainstorming/visual-companion.md` 是兼容 Superpowers 旧文档路径的符号链接，实际内容仍由 `skills/superpowers/brainstorming/visual-companion.md` 唯一维护；它不是一个额外的 skill。
 

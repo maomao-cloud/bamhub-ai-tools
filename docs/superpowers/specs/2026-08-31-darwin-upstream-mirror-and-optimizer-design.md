@@ -48,7 +48,7 @@ Darwin 的“独立子 agent”由当前宿主运行时派生，不是仓库内�
 在 `skills/sources.json` 添加 `darwin` source：
 
 - repository：`https://github.com/alchaincyf/darwin-skill.git`
-- ref：`main`
+- ref：`master`
 - root mapping：上游 `.` → `skills/darwin`
 
 现有同步器必须支持“根目录本身有 `README.md`”的单 skill 上游。Darwin source 显式选择 `metadataFile: ".bamhub-sync.md"`：上游 `README.md` 原样保留，Bamhub 的来源元数据与可选 AI 内容写入该隐藏文件。该文件按与现有受管 README 相同的标记格式校验和保留；目录完整性摘要忽略配置的元数据文件，而不忽略上游 README。其他现有来源保持默认的 `README.md` 元数据文件，以避免迁移无关镜像。

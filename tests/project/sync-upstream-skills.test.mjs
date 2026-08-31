@@ -74,6 +74,20 @@ test('Caveman target contains the complete managed skill set and generated READM
   assertManagedReadmeContract(readme, source);
 });
 
+test('Darwin target preserves its upstream README and uses separate managed metadata', async () => {
+  const root = path.resolve(import.meta.dirname, '../..');
+  const manifest = JSON.parse(await read(root, 'skills/sources.json'));
+  const source = manifest.sources.darwin;
+
+  assert.deepEqual(source.roots, [{ upstream: '.', target: 'skills/darwin' }]);
+  assert.equal(source.metadataFile, '.bamhub-sync.md');
+  assert.equal(await exists(root, 'skills/darwin/SKILL.md'), true);
+  assert.equal(await exists(root, 'skills/darwin/README.md'), true);
+  assert.equal(await exists(root, 'skills/darwin/LICENSE'), true);
+  assert.equal(await exists(root, 'skills/darwin/scripts/screenshot.mjs'), true);
+  assertManagedReadmeContract(await read(root, 'skills/darwin/.bamhub-sync.md'), source);
+});
+
 function assertManagedReadmeContract(readme, source) {
   assert.match(readme, new RegExp(`来源: ${source.repository}`));
   assert.match(readme, new RegExp(`跟踪引用: ${source.ref}`));
