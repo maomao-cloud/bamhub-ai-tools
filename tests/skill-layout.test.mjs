@@ -16,7 +16,8 @@ const categorizedSkills = [
   'skills/bamhub/maintenance/code-simplification-review/SKILL.md',
   'skills/bamhub/maintenance/project-finish-quality-gate/SKILL.md',
   'skills/bamhub/maintenance/sync-module-doc/SKILL.md',
-  'skills/bamhub/maintenance/version-changelog/SKILL.md'
+  'skills/bamhub/maintenance/version-changelog/SKILL.md',
+  'skills/bamhub/productivity/goal-auto/SKILL.md'
 ];
 
 const legacyFlatSkills = [
