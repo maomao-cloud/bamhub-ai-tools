@@ -8,6 +8,7 @@
 
 - `skills/superpowers/`：上游 Superpowers 的完整可替换镜像；不要直接修改。
 - `skills/caveman/`：上游 Caveman 的完整可替换镜像；不要直接修改。
+- `skills/addyosmani/`：上游 Addy Osmani agent-skills 的完整可替换镜像；不要直接修改。
 - `skills/bamhub/`：Bamhub 自有、可跨项目复用的 skill，按领域分组。
 - `skills/project/`：只服务本仓库的能力；`skills/project/sync-upstream-skills/` 只管理上游同步，不可作为通用 skill 发布。
 

@@ -24,6 +24,19 @@
           "target": "skills/caveman"
         }
       ]
+    },
+    "addyosmani-agent-skills": {
+      "repository": "https://github.com/addyosmani/agent-skills.git",
+      "ref": "main",
+      "acceptedCommit": "d2c37ef6225dd8726cdd369a8030307f48592d26",
+      "acceptedAt": "2026-08-31T00:00:00.000Z",
+      "metadataFile": ".bamhub-sync.md",
+      "roots": [
+        {
+          "upstream": "skills",
+          "target": "skills/addyosmani"
+        }
+      ]
     }
   }
 }

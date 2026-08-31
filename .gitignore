@@ -93,3 +93,5 @@ skills/bamhub/integrations/shared-auth/.local/*
 !skills/bamhub/integrations/shared-auth/.local/.gitkeep
 skills/bamhub/integrations/kibana-search/.local/*
 !skills/bamhub/integrations/kibana-search/.local/.gitkeep
+
+.worktrees/

@@ -13,6 +13,8 @@ const categorizedSkills = [
   'skills/bamhub/integrations/shared-auth/SKILL.md',
   'skills/bamhub/integrations/kibana-search/SKILL.md',
   'skills/bamhub/maintenance/rule-refine/SKILL.md',
+  'skills/bamhub/maintenance/code-simplification-review/SKILL.md',
+  'skills/bamhub/maintenance/project-finish-quality-gate/SKILL.md',
   'skills/bamhub/maintenance/sync-module-doc/SKILL.md',
   'skills/bamhub/maintenance/version-changelog/SKILL.md',
   'skills/bamhub/productivity/lyra-prompt-optimizer/SKILL.md'
@@ -52,6 +54,17 @@ test('Bamhub skills use the exact categorized paths', () => {
   for (const skillPath of categorizedSkills) {
     assert.equal(fs.existsSync(path.join(repoRoot, skillPath)), true, skillPath);
   }
+});
+
+test('Bamhub finish skills reference the Addy upstream without importing runtime hooks', () => {
+  const simplify = fs.readFileSync(path.join(repoRoot, 'skills/bamhub/maintenance/code-simplification-review/SKILL.md'), 'utf8');
+  const gate = fs.readFileSync(path.join(repoRoot, 'skills/bamhub/maintenance/project-finish-quality-gate/SKILL.md'), 'utf8');
+  assert.match(simplify, /skills\/addyosmani\/code-simplification\/SKILL\.md/);
+  assert.match(simplify, /行为|错误处理|副作用/);
+  assert.match(gate, /verification-before-completion/);
+  assert.match(gate, /code-simplification-review/);
+  assert.match(gate, /PASS_WITH_NOTES/);
+  assert.doesNotMatch(gate, /simplify-ignore\.sh/);
 });
 
 test('legacy flat Bamhub skill directories are absent', () => {
