@@ -170,13 +170,14 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
   const nextManifest = structuredClone(manifest);
   const nextSource = nextManifest.sources[sourceId];
   validateSource(sourceId, source, repoRoot);
+  const metadataFile = metadataFileFor(source);
   return withSourceClone(source, async (cloneRoot, temporaryRoot) => {
     const currentCommit = source.acceptedCommit;
     const targetCommit = runGit(['rev-parse', 'HEAD'], { cwd: cloneRoot }).trim();
     const upstreamRoots = await validateUpstreamRoots(sourceId, source, cloneRoot);
     const targetRoots = source.roots.map((root) => resolveTarget(repoRoot, root.target));
     await Promise.all(targetRoots.map((target) => assertSafeTargetParent(repoRoot, target)));
-    const managedContents = await Promise.all(targetRoots.map((target) => readManagedReadme(target)));
+    const managedContents = await Promise.all(targetRoots.map((target) => readManagedReadme(target, metadataFile)));
     const targetState = await targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots);
 
     if (!options.force && !targetState.matches) {
@@ -219,7 +220,8 @@ async function applySource(sourceId, manifest, repoRoot, options, io) {
           repoRoot,
           target: targetRoots[index],
           stagedRoot: stagedRoots[index],
-          readme: readmes[index]
+          readme: readmes[index],
+          metadataFile
         }));
       }
     } catch (error) {
@@ -262,6 +264,7 @@ async function withSourceClone(source, callback) {
 }
 
 async function validateUpstreamRoots(sourceId, source, cloneRoot) {
+  const metadataFile = metadataFileFor(source);
   const upstreamRoots = [];
   for (const root of source.roots) {
     const upstreamRoot = resolveWithin(cloneRoot, root.upstream);
@@ -269,8 +272,11 @@ async function validateUpstreamRoots(sourceId, source, cloneRoot) {
     if (!await containsSkill(upstreamRoot)) {
       throw new SyncError('ROOT_NO_SKILL', `source ${sourceId} root ${root.upstream} contains no SKILL.md`);
     }
-    if (await pathExists(path.join(upstreamRoot, 'README.md'))) {
+    if (metadataFile === 'README.md' && await pathExists(path.join(upstreamRoot, metadataFile))) {
       throw new SyncError('ROOT_README_RESERVED', `source ${sourceId} root ${root.upstream} contains README.md reserved for Bamhub`);
+    }
+    if (metadataFile !== 'README.md' && await pathExists(path.join(upstreamRoot, metadataFile))) {
+      throw new SyncError('METADATA_FILE_CONFLICT', `METADATA_FILE_CONFLICT: source ${sourceId} root ${root.upstream} contains metadata file ${metadataFile}`);
     }
     upstreamRoots.push(upstreamRoot);
   }
@@ -326,6 +332,7 @@ async function validateNestedSymlinks(sourceId, configuredRoot, currentRoot, can
 }
 
 async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
+  const metadataFile = metadataFileFor(source);
   if (isZeroCommit(source.acceptedCommit)) {
     return {
       matches: (await Promise.all(targetRoots.map((target) => pathExists(target)))).every((exists) => !exists),
@@ -348,10 +355,10 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
       const target = targetRoots[index];
       if (!await pathExists(target)) return { matches: false, contents: [], needsReadmeMigration: false };
       const expected = resolveWithin(expectedRoot, source.roots[index].upstream);
-      if (!await directoryDigestMatches(target, expected)) {
+      if (!await directoryDigestMatches(target, expected, metadataFile)) {
         return { matches: false, contents: [], needsReadmeMigration: false };
       }
-      const content = await readManagedReadme(target);
+      const content = await readManagedReadme(target, metadataFile);
       if (content !== null) {
         const expectedReadme = buildReadme({
           source,
@@ -359,11 +366,14 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
           acceptedAt: source.acceptedAt,
           content
         });
-        if (!await readmeMatches(target, expectedReadme)) {
+        if (!await readmeMatches(target, metadataFile, expectedReadme)) {
           return { matches: false, contents: [], needsReadmeMigration: false };
         }
         contents.push(content);
         continue;
+      }
+      if (metadataFile !== 'README.md') {
+        return { matches: false, contents: [], needsReadmeMigration: false };
       }
       const expectedLegacyReadme = await buildLegacyReadme({
         sourceId,
@@ -372,7 +382,7 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
         acceptedAt: source.acceptedAt,
         stagedRoot: expected
       });
-      if (!await readmeMatches(target, expectedLegacyReadme)) {
+      if (!await readmeMatches(target, metadataFile, expectedLegacyReadme)) {
         return { matches: false, contents: [], needsReadmeMigration: false };
       }
       contents.push('');
@@ -388,21 +398,21 @@ async function targetsMatchAccepted(sourceId, source, cloneRoot, targetRoots) {
   }
 }
 
-async function directoryDigestMatches(target, expected) {
+async function directoryDigestMatches(target, expected, metadataFile) {
   const [targetDigest, expectedDigest] = await Promise.all([
-    directoryDigest(target, true),
-    directoryDigest(expected, true)
+    directoryDigest(target, metadataFile),
+    directoryDigest(expected, metadataFile)
   ]);
   return targetDigest === expectedDigest;
 }
 
-async function directoryDigest(root, omitReadme) {
+async function directoryDigest(root, metadataFile) {
   const hash = createHash('sha256');
-  await appendDirectoryDigest(hash, root, '', omitReadme);
+  await appendDirectoryDigest(hash, root, '', metadataFile);
   return hash.digest('hex');
 }
 
-async function appendDirectoryDigest(hash, root, relativePath, omitReadme) {
+async function appendDirectoryDigest(hash, root, relativePath, metadataFile) {
   const absolutePath = path.join(root, relativePath);
   const stat = await fs.lstat(absolutePath);
   if (stat.isSymbolicLink()) {
@@ -423,12 +433,13 @@ async function appendDirectoryDigest(hash, root, relativePath, omitReadme) {
   hash.update(`directory:${relativePath}\n`);
   const names = (await fs.readdir(absolutePath)).sort();
   for (const name of names) {
-    if (omitReadme && !relativePath && name === 'README.md') continue;
-    await appendDirectoryDigest(hash, root, path.join(relativePath, name), omitReadme);
+    const entryPath = path.join(relativePath, name);
+    if (entryPath === metadataFile) continue;
+    await appendDirectoryDigest(hash, root, entryPath, metadataFile);
   }
 }
 
-async function prepareReplacement({ repoRoot, target, stagedRoot, readme }) {
+async function prepareReplacement({ repoRoot, target, stagedRoot, readme, metadataFile }) {
   await assertSafeTargetParent(repoRoot, target);
   const targetParent = path.dirname(target);
   const createdDirectories = await createTargetParent(repoRoot, targetParent);
@@ -440,7 +451,9 @@ async function prepareReplacement({ repoRoot, target, stagedRoot, readme }) {
     replacement = path.join(operationRoot, 'replacement');
     backup = path.join(operationRoot, 'backup');
     await fs.cp(stagedRoot, replacement, { recursive: true, force: false, errorOnExist: true });
-    await fs.writeFile(path.join(replacement, 'README.md'), readme);
+    const metadataPath = path.join(replacement, metadataFile);
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await fs.writeFile(metadataPath, readme);
   } catch (error) {
     if (operationRoot) await fs.rm(operationRoot, { recursive: true, force: true });
     await removeEmptyDirectories(createdDirectories);
@@ -542,10 +555,10 @@ function buildReadme({ source, targetCommit, acceptedAt, content }) {
   return `${METADATA_START}\n来源: ${source.repository}\n跟踪引用: ${source.ref}\n已接受提交: ${targetCommit}\n上次成功同步: ${acceptedAt}\n${METADATA_END}\n${CONTENT_START}\n${content}${CONTENT_END}\n`;
 }
 
-async function readManagedReadme(target) {
+async function readManagedReadme(target, metadataFile) {
   let readme;
   try {
-    readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
+    readme = await fs.readFile(path.join(target, metadataFile), 'utf8');
   } catch {
     return null;
   }
@@ -582,10 +595,10 @@ function legacySkillDescription(sourceId, name) {
   return `请阅读 \`${name}/SKILL.md\` 获取完整用法。`;
 }
 
-async function readmeMatches(target, expectedReadme) {
+async function readmeMatches(target, metadataFile, expectedReadme) {
   let readme;
   try {
-    readme = await fs.readFile(path.join(target, 'README.md'), 'utf8');
+    readme = await fs.readFile(path.join(target, metadataFile), 'utf8');
   } catch {
     return false;
   }
@@ -653,6 +666,7 @@ function validateSource(sourceId, source, repoRoot) {
     || !Array.isArray(source.roots) || !source.roots.length) {
     throw new SyncError('SOURCE_INVALID', `source ${sourceId} has an invalid configuration`);
   }
+  metadataFileFor(source);
   const targets = [];
   for (const root of source.roots) {
     if (!isRecord(root) || typeof root.upstream !== 'string' || !root.upstream
@@ -665,6 +679,19 @@ function validateSource(sourceId, source, repoRoot) {
     }
     targets.push(target);
   }
+}
+
+function metadataFileFor(source) {
+  const metadataFile = source.metadataFile ?? 'README.md';
+  if (typeof metadataFile !== 'string' || !metadataFile
+    || path.isAbsolute(metadataFile) || path.win32.isAbsolute(metadataFile)) {
+    throw new SyncError('SOURCE_INVALID', 'metadataFile must be a safe relative path');
+  }
+  const segments = metadataFile.split(/[\\/]+/);
+  if (segments.some((segment) => segment === '.' || segment === '..' || segment === '.git')) {
+    throw new SyncError('SOURCE_INVALID', 'metadataFile must not contain ., .., or .git');
+  }
+  return metadataFile;
 }
 
 function targetsOverlap(left, right) {

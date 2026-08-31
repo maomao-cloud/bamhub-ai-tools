@@ -575,20 +575,95 @@ test('a failed manifest write cannot advance a later --all manifest update', asy
   assert.equal(await exists(fixture.repoRoot, 'skills/failed-source'), false);
 });
 
-test('an upstream root with a target README fails without writes', async (t) => {
+test('an upstream root README is preserved when metadata uses a custom file', async (t) => {
   const fixture = await createFixture({ sourceFiles: {
     'skills/README.md': 'upstream metadata\n',
     'skills/demo/SKILL.md': skill('demo')
   } });
   t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.demo.metadataFile = '.bamhub-sync.md';
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+
+  const result = await runCli(['apply', '--source', 'demo'], fixture);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(await read(fixture.repoRoot, 'skills/demo-source/README.md'), 'upstream metadata\n');
+  const metadata = await read(fixture.repoRoot, 'skills/demo-source/.bamhub-sync.md');
+  assert.match(metadata, /bamhub-sync-metadata:start/);
+
+  const content = '## Kept content\n';
+  await write(
+    fixture.repoRoot,
+    'skills/demo-source/.bamhub-sync.md',
+    metadata.replace(`${CONTENT_START}\n${CONTENT_END}`, `${CONTENT_START}\n${content}${CONTENT_END}`)
+  );
+  await write(fixture.sourceRoot, 'skills/README.md', 'updated upstream metadata\n');
+  await git(fixture.sourceRoot, 'add', 'skills/README.md');
+  await git(fixture.sourceRoot, 'commit', '-m', 'update upstream readme');
+
+  const updated = await runCli(['apply', '--source', 'demo'], fixture);
+
+  assert.equal(updated.exitCode, 0);
+  assert.equal(await read(fixture.repoRoot, 'skills/demo-source/README.md'), 'updated upstream metadata\n');
+  assert.equal(
+    contentBetween(await read(fixture.repoRoot, 'skills/demo-source/.bamhub-sync.md'), CONTENT_START, CONTENT_END),
+    content
+  );
+});
+
+test('custom metadata paths reject unsafe locations', async (t) => {
+  for (const metadataFile of ['../README.md', '/tmp/x', '.git/config']) {
+    const fixture = await createFixture({ sourceFiles: { 'skills/demo/SKILL.md': skill('demo') } });
+    t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+    const manifest = await readManifest(fixture.repoRoot);
+    manifest.sources.demo.metadataFile = metadataFile;
+    await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+
+    const result = await runCli(['check', '--source', 'demo'], fixture);
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.report.sources.demo.status, 'failed');
+    assert.match(result.report.sources.demo.error, /metadataFile/);
+  }
+});
+
+test('an upstream custom metadata file conflicts without writes', async (t) => {
+  const fixture = await createFixture({ sourceFiles: {
+    'skills/.bamhub-sync.md': 'upstream metadata\n',
+    'skills/demo/SKILL.md': skill('demo')
+  } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.demo.metadataFile = '.bamhub-sync.md';
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
   const before = await snapshot(fixture.repoRoot);
 
   const result = await runCli(['apply', '--source', 'demo'], fixture);
 
   assert.equal(result.exitCode, 1);
   assert.equal(result.report.sources.demo.status, 'failed');
-  assert.match(result.report.sources.demo.error, /contains README\.md/);
+  assert.match(result.report.sources.demo.error, /METADATA_FILE_CONFLICT/);
   assert.deepEqual(await snapshot(fixture.repoRoot), before);
+});
+
+test('custom metadata sources do not migrate legacy generated README files', async (t) => {
+  const fixture = await appliedFixture();
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const source = (await readManifest(fixture.repoRoot)).sources.demo;
+  await write(
+    fixture.repoRoot,
+    'skills/demo-source/README.md',
+    legacyReadme({ sourceId: 'demo', source, targetCommit: source.acceptedCommit, acceptedAt: source.acceptedAt, skills: ['demo'] })
+  );
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.demo.metadataFile = '.bamhub-sync.md';
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+
+  await assert.rejects(
+    () => runCli(['apply', '--source', 'demo'], fixture),
+    (error) => error.code === 'TARGET_DIRTY'
+  );
 });
 
 test('nested root targets fail without writes', async (t) => {
