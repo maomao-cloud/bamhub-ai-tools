@@ -1,8 +1,8 @@
 <!-- bamhub-sync-metadata:start -->
 来源: https://github.com/obra/superpowers.git
 跟踪引用: main
-已接受提交: d884ae04edebef577e82ff7c4e143debd0bbec99
-上次成功同步: 2026-07-22T08:08:25.040Z
+已接受提交: b36e0829c6d0140e93cfef2ca599b1b07d4a7797
+上次成功同步: 2026-09-06T18:00:43.847Z
 <!-- bamhub-sync-metadata:end -->
 <!-- bamhub-sync-content:start -->
 
