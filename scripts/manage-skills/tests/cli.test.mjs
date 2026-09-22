@@ -224,3 +224,44 @@ test('operational failures map to exit code one and JSON keeps diagnostics on st
   assert.match(result.stderr, /catalog/i);
 });
 
+test('tool README documents catalog, ownership, target, runtime, Pod, and DSH contracts', async () => {
+  const text = await fs.readFile(path.join(root, 'scripts/manage-skills/README.md'), 'utf8');
+  for (const phrase of [
+    '显式 --catalog',
+    'MANAGE_SKILLS_CATALOG',
+    'manifest',
+    '没有 manifest',
+    '全局',
+    'DSH_HOME',
+    '$HOME/.dsh/skills',
+    '$HOME/.agents/skills',
+    '$HOME/.claude/skills',
+    '--disable-all',
+    'Pod',
+    '手动 checkout',
+    '不自动 clone',
+    '不自动更新',
+    'skill-filesystem',
+    'tool-skill',
+  ]) assert.ok(text.includes(phrase), `missing documentation phrase: ${phrase}`);
+  assert.ok(text.includes('scripts/manage-skills/manage-skills'));
+  assert.ok(text.includes('manage-skills.mjs status --catalog <path> --runtime dsh --json'));
+  assert.ok(text.includes('manage-skills.mjs apply --catalog <path> --runtime dsh --enable brainstorming --yes'));
+});
+
+test('root README links to the implemented manage-skills tool', async () => {
+  const text = await fs.readFile(path.join(root, 'README.md'), 'utf8');
+  assert.ok(text.includes('scripts/manage-skills/README.md'));
+  assert.doesNotMatch(text, /manage-skills 设计.*实施计划/);
+});
+
+test('AGENTS documents six categories and ESM feature test command', async () => {
+  const text = await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8');
+  assert.match(text, /六类/);
+  for (const category of ['superpowers', 'caveman', 'addyosmani', 'darwin', 'bamhub', 'project']) {
+    assert.ok(text.includes(`skills/${category}/`), `missing category: ${category}`);
+  }
+  assert.ok(text.includes('node --test scripts/manage-skills/tests/*.test.mjs'));
+  assert.ok(text.includes('ESM 项目测试') && text.includes('*.test.mjs'));
+});
+

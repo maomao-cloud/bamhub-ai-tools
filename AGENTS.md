@@ -30,7 +30,13 @@ JavaScript 使用 ES 模块（`"type": "module"`）、两个空格缩进、单�
 
 ## 测试指南
 
-使用 Node 内置的 `node:test` 和 `node:assert/strict`。常规测试文件命名为 `*.test.js`；ESM 项目测试和 `scripts/manage-skills/tests/` 使用 `*.test.mjs`，路径应与被测模块保持对应，并描述可观测行为，例如：`test('chooseLoginMode falls back to headless …', ...)`。每次修改脚本或库行为时，都要新增或更新针对性测试，并运行相应测试组；修改 CLI 或涉及多个 skill 时，还应运行集成测试。
+使用 Node 内置的 `node:test` 和 `node:assert/strict`。常规测试文件命名为 `*.test.js`；ESM 项目测试和 `scripts/manage-skills/tests/` 使用 `*.test.mjs`，路径应与被测模块保持对应，并描述可观测行为，例如：`test('chooseLoginMode falls back to headless …', ...)`。manage-skills 的 ESM feature tests 使用以下命令：
+
+```bash
+node --test scripts/manage-skills/tests/*.test.mjs
+```
+
+每次修改脚本或库行为时，都要新增或更新针对性测试，并运行相应测试组；修改 CLI 或涉及多个 skill 时，还应运行集成测试。
 
 ## 提交与拉取请求指南
 

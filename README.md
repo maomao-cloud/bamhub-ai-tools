@@ -26,4 +26,4 @@ Darwin 是一套由 Agent 执行的 skill 优化流程，未提供内置 hook、
 
 上游同步请先运行 `check --all`，确认报告后再运行 `apply --all`。定期检查由 GitHub Actions 托管执行并创建 PR，无需在本机安装定时任务。详见 [sync-upstream-skills](skills/project/sync-upstream-skills/SKILL.md)。
 
-全局 skill 软链接管理按 [`manage-skills 设计`](docs/superpowers/specs/2026-09-20-manage-skills-design.md) 和 [`实施计划`](docs/superpowers/plans/2026-09-20-manage-skills.md)推进。工具只管理全局目录中的 manifest-owned 软链接，不管理项目级 `.agents/skills`/`.claude/skills`，不复制或修改源 skill；DSH Web 是否启用本地 skill provider 仍需以实际 profile/preset 运行时验证为准。
+全局 skill 软链接管理器 [`manage-skills`](scripts/manage-skills/README.md) 从一个用户确认的 catalog 将 manifest-owned 相对软链接暴露到 DSH、Codex、Claude Code 或安全校验后的自定义全局目录。工具只管理全局目录，不管理项目级 `.agents/skills`/`.claude/skills`，不复制或修改源 skill；没有 manifest ownership 的链接受保护。DSH Web 是否启用本地 skill provider 仍需以实际 profile/preset 运行时验证为准；Pod 中的 catalog checkout 由维护者手动准备，工具不自动 clone 或更新。
