@@ -2,270 +2,336 @@
 
 **日期：** 2026-09-20  
 **项目：** `bamhub-ai-tools`  
-**状态：** 待用户审阅
+**状态：** 交叉审查修订版，待再次审阅
 
 ## 1. 背景
 
-`bamhub-ai-tools` 中的 `skills/` 目录按所有权、来源和上游同步需求组织，便于维护，但 DSH、Codex 和 Claude Code 的运行时 skill 扫描目录是一层目录，不能直接复用仓库的多层分类结构。
+`bamhub-ai-tools/skills/` 按所有权、来源和上游同步需求组织，便于维护，但运行时 skill 目录要求每个 skill 是目标目录的直接子目录：
 
-本功能提供一个独立的交互式工具：从用户确认的 skill catalog 中选择 skill，以相对符号链接暴露到用户级运行时目录。真实 `SKILL.md` 和资源文件始终留在 catalog 中，运行时目录不复制 skill 内容。
+```text
+<skill-root>/<skill-name>/SKILL.md
+```
+
+本功能提供一个独立工具：从用户确认的 catalog 中选择 skill，以相对符号链接暴露到全局运行时目录。真实 `SKILL.md` 和资源文件始终留在 catalog 中，运行时目录不复制 skill 内容。
+
+本设计基于对当前 DSH Pod 的真实检查修订：
+
+- 当前 Pod 的 bamhub checkout 实际路径为 `/work/bamhub-other/bamhub-ai-tools`，路径不是部署契约；
+- 当前 Pod 的 `/opt/data/dsh/skills` 尚不存在，但它位于现有 PVC 的 `home` 子路径中，创建后可持久化；
+- 当前 Web profile 的 host 层 `skill-filesystem` 和 `tool-skill` 在 `dsh --profile web --dump-config` 中显示为 `disabled: true`；
+- 因此不能仅凭创建 `/opt/data/dsh/skills` 就声称当前 DSH Web 会发现或加载 skill，必须先通过运行时 gate 验证 active agent preset/skill provider，必要时另行设计 DSH profile patch。
 
 ## 2. 目标
 
-- 在 `bamhub-ai-tools` 内提供独立的 `manage-skills` 工具。
+- 在 `bamhub-ai-tools` 内提供独立的 `manage-skills` 工具，全部代码、模块、测试和工具文档内聚于 `scripts/manage-skills/`。
 - 默认从工具所在仓库推导 `skills/`，但不硬编码 `/work/bamhub-ai-tools`。
-- 如果默认 catalog 不存在或用户不使用，交互式要求用户指定 catalog。
-- 支持 DSH、Codex、Claude Code 和自定义全局 skill 目录。
-- 默认以交互式向导完成扫描、选择、预览和执行。
+- 如果默认 catalog 不存在、不可读或用户不接受，交互式要求用户指定 catalog。
+- 支持 DSH、Codex、Claude Code 和经过“全局目录”校验的自定义目标目录。
+- 默认以交互式向导完成环境扫描、catalog 确认、目标确认、状态扫描、选择、预览、确认、执行和复核。
 - 只创建和删除软链接，不复制、修改或删除源 skill 文件。
-- 只管理目标为当前 catalog 内路径的软链接；实体文件、实体目录和外部软链接始终受保护。
-- DSH 直接使用现有持久化的 `$DSH_HOME/skills`，不新增 PVC 子目录、环境变量或插件。
+- 只有 manifest 明确记录且二次校验匹配的软链接才允许删除；没有 manifest 的现有软链接默认只读保护。
+- 使用相对软链接，并防止 catalog/target 重叠、父级软链接越界和竞态替换。
+- DSH 目标复用现有 `$DSH_HOME/skills` PVC 路径，不新增 PVC、挂载、`DSH_AGENTS_HOME`、initContainer、镜像内容或 DSH 插件。
 - 提供非交互参数模式用于测试、自动化和故障恢复。
 
 ## 3. 非目标
 
 - 不开发 DSH 插件。
+- 不自动启用或修改 DSH 的 `skill-filesystem`、`tool-skill` 或 agent preset；当前 DSH Web 的 skill provider gate 是独立的运行时适配事项。
 - 不修改 skill 内容、frontmatter 或上游同步逻辑。
 - 不管理项目级 `.agents/skills` 或 `.claude/skills`。
-- 不删除外部仓库的软链接。
-- 不自动 clone 或更新 skill catalog 仓库。
+- 不删除没有本工具 manifest 记录的软链接，即使它指向当前 catalog。
+- 不自动 clone、pull、fetch、checkout、reset 或更新 skill catalog。
 - 不在 Pod 启动链路中自动重建软链接。
 
-## 4. 运行时目录
+## 4. 全局运行时目录
 
-三种运行时使用各自的全局目录：
-
-| 运行时 | 目标目录 | 检测方式 |
+| 运行时 | 默认目标目录 | 检测方式 |
 |---|---|---|
-| DSH | `$DSH_HOME/skills` | 优先使用 `DSH_HOME`；未设置时可检查 `$HOME/.dsh/skills` |
+| DSH | `$DSH_HOME/skills` | 优先使用 `DSH_HOME`；未设置时仅将 `$HOME/.dsh/skills` 作为待确认 fallback |
 | Codex | `$HOME/.agents/skills` | 用户级 Agent Skills 目录 |
 | Claude Code | `$HOME/.claude/skills` | Claude Code 用户级 skills 目录 |
-| 自定义 | 用户输入的目录 | 交互式或 `--target` |
+| 自定义 | 用户输入的全局目录 | 通过全局边界校验后才能选择 |
 
-在当前 DSH Pod 中，`DSH_HOME=/opt/data/dsh`，因此目标为 `/opt/data/dsh/skills`。该目录位于现有 PVC 的 `home` 子路径中，不需要增加 `agents` 子目录或新的挂载。
+DSH 自身可能还扫描 project `.dsh/skills`、project `.agents/skills`、custom provider 和 `$DSH_AGENTS_HOME/skills`。本工具只管理上表中的全局目标，不管理 DSH 可见范围内的所有 skill 来源。
 
-skill catalog 可以位于 `/work/bamhub-ai-tools/skills`，但该路径只作为运行时示例，不写入工具逻辑。脚本从自身位置推导仓库根目录和 `skills/`，或者使用用户提供的路径。
+### 4.1 自定义目录的全局边界
 
-## 5. 目录结构
+自定义目标不能位于 Git 工作树内部，也不能是项目级 `.agents/skills` 或 `.claude/skills`。脚本解析目标路径和其现有祖先：
 
-功能相关内容全部内聚在脚本目录中：
+- 目标或祖先存在于包含 `.git` 的工作树内：拒绝；
+- 目标、catalog 或其父级是软链接：先解析 canonical path 并保存 identity；无法安全解析时拒绝；
+- target 与 catalog 相等、互为祖先/后代或 canonical path 重叠：拒绝；
+- target 不存在时，只允许创建最后一层目录，不能自动创建缺失的父链或跟随软链接父级。
 
-```text
-scripts/manage-skills/
-├── manage-skills              # 可执行入口
-├── manage-skills.mjs          # CLI 主流程
-├── lib/
-│   ├── catalog.mjs            # catalog 扫描与 skill 元信息
-│   ├── links.mjs              # 软链接状态、归属和执行
-│   ├── runtimes.mjs           # DSH/Codex/Claude 目录检测
-│   ├── plan.mjs               # 目标状态与变更计划
-│   └── interactive.mjs        # 原生 readline 交互
-├── tests/
-│   ├── catalog.test.mjs
-│   ├── links.test.mjs
-│   ├── runtimes.test.mjs
-│   └── manage-skills.test.mjs
-└── README.md
-```
+标准 DSH/Codex/Claude 目标按运行时契约解析，不通过 custom 例外绕过这些边界。
 
-实现使用 Node.js 原生模块，不新增 npm 依赖。Shell 入口只负责定位脚本并转发参数；核心逻辑使用 Node.js，保证 macOS、Linux 和 DSH Pod 的路径与文件系统行为一致。
-
-## 6. Catalog 选择
+## 5. Catalog 选择与 checkout 前置条件
 
 优先级如下：
 
-1. 显式参数 `--catalog <path>`；
-2. 环境变量 `MANAGE_SKILLS_CATALOG`；
-3. 从脚本位置推导 `<repository-root>/skills`；
+1. 显式参数 `--catalog <path>`：路径无效或不是目录时直接报错，不回退到其他候选；
+2. 环境变量 `MANAGE_SKILLS_CATALOG`：路径无效时直接报错，不回退；
+3. 从脚本位置推导 `<repository-root>/skills`：不存在时只作为缺失候选，不自动创建；
 4. 交互式输入路径。
 
-默认目录存在时也必须向用户确认；不存在时不得静默创建或猜测。一次运行只使用一个 catalog 根目录，以便明确软链接归属和避免跨仓库同名混合。
+默认候选必须经过用户确认；显式参数和环境变量在非交互模式下视为明确选择。交互输入必须验证为可读目录；工具不负责 clone 或同步。
 
-catalog 扫描递归查找 `SKILL.md`。每个文件的父目录是一个 skill bundle。读取 frontmatter 中的 `name` 和 `description`，名称必须符合 Agent Skills 规范：小写字母、数字和连字符，不以连字符开头或结尾，不含路径分隔符。
+在 DSH Pod 中，现有 Deployment 只将 PVC 的 `work` 子目录挂载为 `/work`，不会自动提供 bamhub checkout。使用前由人工把 checkout 放到 `/work` PVC 中，例如当前环境可使用：
 
-非法或缺失 frontmatter 的 skill 只报告，不修改源文件。
+```text
+/work/bamhub-other/bamhub-ai-tools
+```
 
-## 7. 交互式流程
+但工具不能把该路径当成固定默认值。执行前必须验证：
 
-直接执行：
+```bash
+git -C <checkout> rev-parse --show-toplevel
+test -d <checkout>/skills
+git -C <checkout> status --short
+```
+
+未确认的工作树修改、缺少 `skills/` 或无法确定 commit 时，工具停止。
+
+一次运行只使用一个 catalog 根目录，以便明确 manifest 归属和避免跨仓库同名混合。
+
+## 6. Catalog 扫描与有效 skill
+
+工具递归查找 catalog 下的 `SKILL.md`，但 runtime 暴露时只链接 skill bundle 的直接目录，不把 catalog 多层目录整体链接过去。
+
+每个候选必须满足：
+
+- `SKILL.md` 是 regular file，不是软链接；
+- bundle 目录 canonical path 位于 catalog canonical root 内；
+- `SKILL.md` canonical path 位于 bundle 内且仍位于 catalog 内；
+- frontmatter 使用 `---` 包围；
+- v1 只解析顶层单行 `name:` 和 `description:`，值可用单/双引号包裹；多行、嵌套、重复关键字段和缺失必填字段报告为 invalid；
+- `name` 只允许小写字母、数字和连字符，不以连字符开头或结尾；
+- bundle 内若存在软链接，解析后不得逃出 catalog；逃逸资源报告为 invalid，不得暴露。
+
+有效记录：
+
+```js
+{
+  name,
+  description,
+  sourceDir,
+  skillFile,
+  relativeSource,
+  sourceIdentity: { dev, ino }
+}
+```
+
+同名 skill 不自动选择。v1 支持结构化 selector：
+
+```js
+{
+  name: 'brainstorming',
+  source: 'skills/superpowers/brainstorming',
+  linkName: 'brainstorming'
+}
+```
+
+`linkName` 可选；缺省使用 `name`。`linkName` 必须是合法 skill 名称且在同一 target 内唯一。源路径必须是当前 catalog 内某个有效 skill 的 `relativeSource`，不能只传一个模糊名称。
+
+## 7. Manifest、归属和安全删除
+
+不再根据“软链接目标位于 catalog 内”推断归属。每个 target 使用独立 manifest，manifest 存放在 target 外部的 state 目录：
+
+- DSH：`$DSH_HOME/.manage-skills/targets/`；
+- Codex/Claude：`$XDG_STATE_HOME/manage-skills/`，未设置时使用 `$HOME/.local/state/manage-skills/`；
+- custom：使用同一 state 根，但 target identity 作为文件名哈希的一部分。
+
+Manifest 记录：
+
+```js
+{
+  version: 1,
+  target: { path, dev, ino },
+  catalog: { path, dev, ino, gitRemote, gitCommit },
+  links: [
+    {
+      linkName,
+      sourceRelative,
+      sourceIdentity: { dev, ino },
+      relativeTarget,
+      createdAt
+    }
+  ]
+}
+```
+
+规则：
+
+- manifest 不放进 skill root，不会被任何 runtime 当成 skill；
+- manifest 缺失、catalog identity 不匹配或 target identity 不匹配时，只允许 status/plan，禁止自动删除；
+- 现有未登记软链接显示为 `unmanaged-symlink`，不覆盖、不删除；v1 不提供接管流程，用户需要自行处理后再重新生成 manifest-owned link；
+- 失效链接只有在 manifest 记录、link path 匹配且 lexical target 与记录匹配时才可进入 quarantine；
+- 删除前必须二次 `lstat`，并校验 dev/ino、类型和 link target 均与 plan 快照相同；否则标记 conflict，停止该 target 的删除。
+
+## 8. 变更计划、锁和恢复
+
+计划模型：
+
+```js
+{
+  target: { path, dev, ino },
+  catalog: { path, dev, ino, gitCommit },
+  desired: [{ name, sourceRelative, linkName }],
+  create: [{ linkPath, sourceDir, relativeTarget, sourceIdentity }],
+  remove: [{ linkPath, relativeTarget, manifestEntry }],
+  keep: [{ linkPath, relativeTarget }],
+  conflicts: [{ linkPath, kind, reason }],
+  protected: [{ linkPath, kind, reason }],
+  fingerprint
+}
+```
+
+一个 `PlanSet` 包含多个 target 的 plan。执行前必须重新扫描 catalog、manifest 和所有 target；fingerprint 或 identity 变化时拒绝执行并要求重新生成计划。
+
+每个 target 使用 state 目录下的原子 lock。已有 lock 必须显示 owner/time；过期 lock 不自动抢占，用户需要显式清理。
+
+应用顺序：
+
+1. 所有 target 预检和加锁完成后才开始变更；
+2. 对每个 target 重新校验 source/target identity；
+3. 创建新软链接；
+4. 删除项先 rename 到 state quarantine，不直接 unlink；
+5. 原子写入 manifest；
+6. 重新扫描和验证；
+7. 验证成功后清理 quarantine；
+8. 任何失败留下 journal/quarantine，并输出可恢复状态，不声称全部成功。
+
+多 target 不是跨目录事务，但必须输出每个 target 的独立结果；本次创建项可在失败时按 journal 回滚，已 quarantine 的删除项保留，不自动永久删除。
+
+## 9. 交互流程
+
+默认执行：
 
 ```bash
 scripts/manage-skills/manage-skills
 ```
 
-按以下顺序执行：
+固定顺序：
 
-1. 扫描环境和运行时目录；
-2. 查找并确认默认 catalog，或让用户输入 catalog；
-3. 扫描 catalog，报告有效 skill、非法 skill 和重名 skill；
-4. 多选需要管理的全局运行时目录；
-5. 扫描目标目录中的软链接状态；
-6. 选择最终启用的 skill 集合；
-7. 生成创建、删除、保持、冲突和保护项计划；
-8. 用户二次确认；
-9. 执行创建和删除；
-10. 重新扫描并输出复核结果。
+1. 扫描 DSH/Codex/Claude 和已有 custom 候选；
+2. 确认 catalog（或输入路径）；
+3. 扫描有效/invalid/duplicate skill；
+4. 选择要管理的全局目标目录；
+5. 读取 target 状态和 manifest；
+6. 选择最终 desired skill 集合；
+7. 显示每个 target 的完整 PlanSet：create/remove/keep/conflicts/protected；
+8. 用户二次确认；确认前不得 mkdir、写 manifest、创建/删除软链或获取写锁；
+9. 加锁并执行；
+10. 复核并显示每个 target 的结果。
 
-交互列表支持上下移动、空格切换、全选、全不选、回车确认和 Esc 返回。非 TTY 环境不进入交互模式。
+交互必须在 `try/finally` 中恢复 terminal raw mode、关闭 readline、处理 EOF/SIGINT/SIGTERM。非 TTY 不进入交互模式。
 
-工具内不提供说明菜单，详细说明放在 `scripts/manage-skills/README.md`。
+## 10. 参数模式
 
-## 8. Skill 重名
+非交互模式必须明确 desired-state 输入：
 
-运行时链接名称默认使用 frontmatter 的 `name`，不使用父目录名。
+- `status`：只读；
+- `plan --enable <selector,...>`：生成计划，不修改；
+- `apply --enable <selector,...> --yes`：把 selector 集合当作最终 desired 集合并执行；
+- `apply --disable-all --yes`：显式清空当前 manifest 管理的链接；
+- `--catalog` 与 `--runtime`/`--target` 的优先级和冲突必须明确：`--target` 表示单个 custom target，不能与 `--runtime` 同时使用；`--runtime` 可重复，`all` 只展开用户明确确认且可解析的标准目录；
+- 无 `--yes` 的 `apply` 不得在 `--non-interactive` 下执行；
+- JSON 模式 stdout 只输出一个 schema 对象，诊断写 stderr。
 
-同一 catalog 内发现同名 skill 时不自动选择，要求用户选择源路径、暂不处理或使用运行时别名。别名只改变软链接名称，不修改源 `SKILL.md`：
-
-```text
-/opt/data/dsh/skills/bamhub-brainstorming
-  -> /work/bamhub-ai-tools/skills/bamhub/brainstorming
-```
-
-## 9. 软链接状态与安全规则
-
-目标目录条目分类为：
-
-- `managed-valid`：软链接目标在 catalog 内，且目标存在有效 `SKILL.md`；
-- `managed-broken`：软链接文本指向 catalog 内部，但目标已不存在；
-- `foreign-symlink`：软链接目标位于 catalog 外；
-- `regular-file`：实体文件；
-- `regular-directory`：实体目录；
-- `unknown`：无法确认归属的条目。
-
-软链接归属通过目标路径判定，不增加 manifest：
-
-- 有效链接使用 `realpath`；
-- 失效链接使用 `readlink`，相对于链接父目录解析并规范化；
-- 使用路径边界判断，避免把 `skills-evil` 误判为 `skills` 子目录；
-- catalog 内部指向外部的嵌套软链接不得被接受为有效 skill。
-
-只允许删除 `managed-valid` 和用户明确选择清理的 `managed-broken`。以下内容永远不自动删除或覆盖：
-
-- 实体文件；
-- 实体目录；
-- 外部软链接；
-- 无法确认归属的失效软链接。
-
-所有新链接使用 `path.relative()` 计算相对目标路径。禁止硬编码 `/Users/...` 或 `/work/...`。
-
-## 10. 变更计划与执行
-
-脚本先构造内存计划：
-
-```js
-{
-  targetRoot,
-  create,
-  remove,
-  keep,
-  conflicts,
-  protected
-}
-```
-
-执行前重新确认 catalog 和目标目录状态未发生变化。执行顺序：
-
-1. 创建目标目录（仅在用户选中且最终确认后）；
-2. 创建新增软链接；
-3. 删除用户确认的受管软链接；
-4. 重新扫描；
-5. 输出复核结果。
-
-删除软链接使用针对链接本身的操作，不使用 `rm -rf`。部分操作失败时保留已完成结果并逐项报告，不进行未经用户要求的隐式回滚。
-
-## 11. 参数模式
-
-交互模式是默认入口。非交互模式用于测试和自动化：
-
-```bash
-scripts/manage-skills/manage-skills.mjs status \
-  --catalog /work/bamhub-ai-tools/skills \
-  --target /opt/data/dsh/skills \
-  --json
-
-scripts/manage-skills/manage-skills.mjs plan \
-  --catalog /work/bamhub-ai-tools/skills \
-  --target /opt/data/dsh/skills \
-  --enable brainstorming,playbook-design
-
-scripts/manage-skills/manage-skills.mjs apply \
-  --catalog /work/bamhub-ai-tools/skills \
-  --target /opt/data/dsh/skills \
-  --enable brainstorming,playbook-design \
-  --yes
-```
-
-`--non-interactive` 没有 `--yes` 时失败，避免隐式修改。失效链接清理必须显式使用 `--prune-broken`。参数模式与交互模式共用同一组 `lib` 逻辑。
-
-## 12. DSH Pod 适配
-
-bamhub 仓库固定放置在 `/work/bamhub-ai-tools` 只是部署约定，不是脚本硬编码要求。运行时：
-
-```bash
-kubectl --context home-pc-loc -n tools exec -it deploy/ai-dsh-web -- \
-  /work/bamhub-ai-tools/scripts/manage-skills/manage-skills
-```
-
-脚本会检测：
+`--enable` selector 使用：
 
 ```text
-catalog candidate: /work/bamhub-ai-tools/skills
-DSH target: /opt/data/dsh/skills
+name
+name=alias
+source/relative/path
+source/relative/path=alias
 ```
 
-`/opt/data/dsh/skills` 和 `/work/bamhub-ai-tools/skills` 都位于现有 PVC 的 `home`、`work` 子路径中。Pod 重启不会丢失软链接，也不需要 initContainer 重建。上游同步只改变 catalog 内容；新增或取消暴露由本工具管理。
+逗号分隔项必须 trim，空项报错；不支持隐式通配和模糊名称。manifest 不作为用户输入格式，避免另造一套 selector 解析；状态 manifest 只由工具写入。
 
-当前 Kubernetes Deployment 不需要增加 PVC、volumeMount、环境变量、initContainer、镜像内容或 DSH 插件。只需在 `home-k3s-pc/tools/ai-dsh/README.md` 中补充使用说明和持久化边界。
+## 11. DSH Pod 运行时 gate
+
+当前真实 Pod 的 `dsh --profile web --dump-config` 显示 host `skill-filesystem` 和 `tool-skill` disabled。因而 `/opt/data/dsh/skills` 的持久化和软链接测试不能等同于 DSH Web 已经发现 skill。
+
+生产验收前必须完成独立 gate：
+
+1. 确定当前 active agent preset 是否挂载 filesystem provider；
+2. 如果没有，单独设计并验证 profile patch/配置，使 `skill-filesystem` 和 `tool-skill` 在目标 preset 中启用；
+3. 用一个受控 skill 在实际 Web session/agent invocation 中验证可见和可加载；
+4. 对 symlink 指向的 catalog 做 controlled mutation probe，验证 frontmatter/目录变化是否被 watcher 感知；不能仅凭 `followSymlinks` 文档推断。
+
+在 gate 未通过时，manage-skills 仍可以作为安全的持久化软链接管理器运行，但不得宣称 DSH Web 已支持这些链接。
+
+## 12. DSH PVC 与同步职责
+
+现有映射：
+
+```text
+/www/data/dsh/home/ -> /opt/data/dsh/
+/www/data/dsh/work/ -> /work/
+```
+
+因此 DSH link root 为 `/opt/data/dsh/skills`，catalog checkout 必须位于 `/work` 下，具体路径由用户确认。Pod 重启只保证 PVC 内已存在的 link 和 checkout 持久化；不会自动 clone、pull、rollout 或更新 catalog。
+
+运行顺序：
+
+1. 人工把 catalog checkout 放入 `/work` PVC，并确认 Git commit；
+2. 必要时按既有 ai-dsh 运维流程人工升级镜像；
+3. Pod Ready 后执行 `/tmp` 非生产 probe；
+4. 生成并审阅生产 PlanSet；
+5. 用户确认后 apply；
+6. 完成 link、source 和实际 DSH runtime gate 验证。
+
+当前 manage-skills 功能不修改 Kubernetes YAML。部署运维说明补充到 `maomao-deploy/home-k3s-pc/tools/ai-dsh/README.md`，且与 bamhub 工具文档分仓提交。
 
 ## 13. 测试与验收
 
-测试使用 Node 内置 `node:test`，所有测试使用临时目录，不触碰真实用户目录：
+测试全部使用临时目录和可注入 IO，不触碰真实用户目录：
 
-- catalog 递归扫描、frontmatter、非法名称和重名；
-- 有效软链接、失效软链接、外部软链接、实体文件和实体目录；
-- 路径边界、空格路径、相对路径和跨平台路径；
-- 创建、保持、删除、冲突保护和失效链接清理；
-- DSH/Codex/Claude 运行时目录识别；
-- 交互取消、非 TTY、确认和执行后复核；
-- JSON 状态输出和参数模式。
+- catalog 递归扫描、frontmatter 边界、非法名称、重复/alias selector；
+- sourceDir/SKILL.md regular-file 和 bundle 内 symlink 逃逸；
+- catalog/target 相等、祖先/后代、symlink ancestor、Git worktree project target；
+- valid、broken、foreign、unmanaged、regular file、regular directory；
+- manifest 缺失/identity 不匹配/路径替换；
+- target lock、source replacement、link replacement、并发 apply；
+- quarantine、journal、失败恢复和多 target partial result；
+- DSH fallback、Codex/Claude/custom runtime detection；
+- selector 缺失、`--disable-all`、`--yes`、JSON stdout/stderr；
+- TTY EOF、Esc、Ctrl-C、异常退出后的 raw mode 恢复；
+- 预览阶段无 mkdir/写入；
+- Pod 真实路径发现、临时 probe、symlink identity 和实际 DSH discovery gate。
 
-本地验证：
-
-```bash
-node --check scripts/manage-skills/manage-skills.mjs
-node --test scripts/manage-skills/tests/*.test.mjs
-```
-
-然后运行仓库已有测试命令，并根据实际匹配文件验证，不臆造不存在的命令。
-
-Pod 验收先使用临时 catalog 和 `/tmp` target 执行 `status --json`、创建、删除和复核，不直接修改 `/opt/data/dsh/skills`。确认工具能在真实 Pod 中运行后，再通过交互向导管理生产 DSH 全局目录：
+最终 DSH 命令必须带 profile、context 和 container：
 
 ```bash
-kubectl --context home-pc-loc -n tools exec deploy/ai-dsh-web -- \
-  dsh --dump-config
-
-kubectl --context home-pc-loc -n tools exec deploy/ai-dsh-web -- \
-  find /opt/data/dsh/skills -maxdepth 1 -type l -print
+kubectl --context home-pc-loc -n tools exec -c ai-dsh deploy/ai-dsh-web -- \
+  dsh --profile web --dump-config
 ```
 
-最终确认目标项是软链接，且：
+软链接验收至少同时检查：
 
 ```bash
-test -f /opt/data/dsh/skills/<skill-name>/SKILL.md
+kubectl --context home-pc-loc -n tools exec -c ai-dsh deploy/ai-dsh-web -- \
+  sh -c 'test -L /opt/data/dsh/skills/<name> && readlink /opt/data/dsh/skills/<name> && test -f /opt/data/dsh/skills/<name>/SKILL.md'
 ```
+
+上述文件检查不能替代实际 DSH Web discovery gate。
 
 ## 14. 决策摘要
 
 ```text
 实现位置：scripts/manage-skills/
-实现语言：Node.js 原生模块
+实现语言：Node.js 原生模块；可选 POSIX wrapper
 默认入口：交互式向导
-catalog：用户确认，默认从脚本位置推导
-DSH 目标：$DSH_HOME/skills
+catalog：用户确认；默认从脚本位置推导
+DSH 目标：$DSH_HOME/skills，但当前 Web provider 必须先过 runtime gate
 Codex 目标：$HOME/.agents/skills
 Claude 目标：$HOME/.claude/skills
 链接类型：相对软链接
+归属：target 外部 per-target manifest，不凭路径猜测
 源文件：不复制、不修改
-保护对象：实体文件、实体目录、外部软链接
+保护对象：无 manifest 软链、实体文件、实体目录、外部软链
+恢复：lock + journal + quarantine
 持久化：复用现有 DSH PVC，不新增挂载
 ```

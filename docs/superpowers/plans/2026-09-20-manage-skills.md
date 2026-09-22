@@ -2,27 +2,33 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build an interactive, cross-platform Node.js utility that lets users select skills from a user-confirmed catalog and manage relative symbolic links in global DSH, Codex, Claude Code, or custom skill directories.
+**Goal:** Build a safe interactive Node.js utility that lets a user select valid skills from one confirmed catalog and manage only manifest-owned relative symlinks in global DSH, Codex, Claude Code, or custom skill roots.
 
-**Architecture:** Keep the complete feature under `scripts/manage-skills/`. The catalog scanner discovers valid `SKILL.md` bundles and reports invalid or duplicate entries. The link layer classifies target entries, creates plans, and applies only safe changes. A runtime detector resolves DSH/Codex/Claude/custom target roots, while the CLI provides an interactive wizard and a non-interactive JSON-capable mode. The existing DSH PVC is reused through `$DSH_HOME/skills`; no Kubernetes runtime change is required.
+**Architecture:** Keep implementation and tests under `bamhub-ai-tools/scripts/manage-skills/`. A catalog module validates real skill bundles and structured selectors. A target/state layer validates global roots, persists per-target ownership manifests outside skill roots, and holds locks. A plan/transaction layer performs identity-checked, journaled changes with quarantine recovery. The CLI provides the scan→confirm→select→preview→apply wizard plus explicit non-interactive commands. DSH integration is a separate runtime gate because the current Web profile disables host `skill-filesystem` and `tool-skill`; this plan must not claim DSH discovery until a real session probe passes.
 
-**Tech Stack:** Node.js built-in ESM, `node:fs/promises`, `node:path`, `node:readline`, `node:os`, `node:test`, `node:assert/strict`, POSIX shell wrapper.
+**Tech Stack:** Node.js built-in ESM, `node:fs/promises`, `node:path`, `node:crypto`, `node:readline`, `node:os`, `node:test`, `node:assert/strict`, optional POSIX wrapper.
 
 ## Global Constraints
 
-- Keep all feature files under `scripts/manage-skills/` in `bamhub-ai-tools`.
+- Keep implementation, modules, tests, and tool README under `bamhub-ai-tools/scripts/manage-skills/`.
 - Do not add npm dependencies or require a package manager.
-- Default to an interactive wizard; never modify files before the final confirmation.
-- Resolve catalog in this order: `--catalog`, `MANAGE_SKILLS_CATALOG`, script-relative `<repository-root>/skills`, interactive input.
-- Never hard-code `/work/bamhub-ai-tools` in implementation logic.
-- Manage global roots only: DSH `$DSH_HOME/skills`, Codex `$HOME/.agents/skills`, Claude `$HOME/.claude/skills`, or an explicit custom target.
-- Use relative symbolic links calculated with `path.relative()`.
-- Only links resolving inside the selected catalog are managed; regular files, regular directories, foreign links, and unknown broken links are protected.
+- Default to an interactive wizard; no mkdir, manifest write, lock acquisition, symlink creation, quarantine, or deletion before final confirmation.
+- Resolve catalog in this exact order: explicit `--catalog`, `MANAGE_SKILLS_CATALOG`, script-relative `<repository-root>/skills`, interactive input.
+- Explicit/env catalog paths that are invalid fail; derived missing candidates require interactive input and are never created.
+- Never hard-code `/work/bamhub-ai-tools`; a Pod checkout is a human-managed prerequisite at a user-confirmed path under `/work`.
+- Manage global roots only: DSH `$DSH_HOME/skills` or `$HOME/.dsh/skills` fallback, Codex `$HOME/.agents/skills`, Claude `$HOME/.claude/skills`, or a custom path that passes the global-root guard.
+- Reject custom targets inside a Git worktree, project `.agents/skills`, project `.claude/skills`, catalog/target overlaps, and unsafe symlink ancestors.
+- Use relative symlinks calculated with `path.relative()`.
+- Do not infer ownership from a link target alone. Only manifest-owned links with matching identity may be removed automatically.
+- Protect unmanaged/foreign/broken links, regular files, and regular directories by default.
 - Never copy, edit, or delete source skill files.
-- DSH uses the existing persistent `/opt/data/dsh/skills` path; do not add PVCs, mounts, `DSH_AGENTS_HOME`, initContainers, image content, or a DSH plugin.
+- Use per-target lock, catalog/target/source identity snapshots, journal, quarantine, and post-apply verification.
+- DSH uses the existing persistent `$DSH_HOME/skills` path; do not add PVCs, mounts, `DSH_AGENTS_HOME`, initContainers, image content, or a DSH plugin in this feature.
+- Do not clone, pull, checkout, reset, or update the catalog from the tool.
 - Use temporary directories for tests; never mutate real user skill directories in automated tests.
-- Use repository style: ESM, two-space indentation, single quotes, semicolons, semantic names, and `node:test`.
-- Do not claim Pod support until the real running Pod probe passes.
+- Use ESM, two-space indentation, single quotes, semicolons, and `node:test`.
+- New tests under the feature directory use `.test.mjs`; update `AGENTS.md` to document this existing ESM exception.
+- Do not claim DSH Web support until the actual active preset/session discovery gate passes.
 
 ---
 
@@ -30,139 +36,122 @@
 
 ### New files in `bamhub-ai-tools`
 
-- `scripts/manage-skills/manage-skills`: executable POSIX wrapper that resolves its own directory and forwards arguments to Node.
-- `scripts/manage-skills/manage-skills.mjs`: CLI entry, command parsing, interactive orchestration, JSON/error exit handling.
-- `scripts/manage-skills/lib/catalog.mjs`: catalog discovery, frontmatter extraction, name validation, duplicate grouping, and source-boundary checks.
-- `scripts/manage-skills/lib/links.mjs`: target entry classification, safe ownership detection, relative-link planning, application, and post-apply verification.
-- `scripts/manage-skills/lib/runtimes.mjs`: DSH/Codex/Claude/custom target detection and target metadata.
-- `scripts/manage-skills/lib/plan.mjs`: desired-state reconciliation for one target root and plan serialization.
-- `scripts/manage-skills/lib/interactive.mjs`: Node-native TTY menus, cursor movement, multi-select, confirmation, and non-TTY behavior.
-- `scripts/manage-skills/tests/catalog.test.mjs`: scanner and metadata tests.
-- `scripts/manage-skills/tests/links.test.mjs`: link classification, safety, planning, and application tests.
-- `scripts/manage-skills/tests/runtimes.test.mjs`: runtime detection tests.
-- `scripts/manage-skills/tests/manage-skills.test.mjs`: CLI and interactive orchestration tests.
-- `scripts/manage-skills/README.md`: usage, runtime locations, safety boundary, Pod operation, and troubleshooting.
+- `scripts/manage-skills/manage-skills`: optional executable POSIX wrapper that runs the Node entry.
+- `scripts/manage-skills/manage-skills.mjs`: CLI entry and process exit handling.
+- `scripts/manage-skills/lib/catalog.mjs`: catalog resolution, recursive bundle scan, frontmatter validation, duplicate and selector resolution.
+- `scripts/manage-skills/lib/targets.mjs`: DSH/Codex/Claude/custom target detection and global-boundary validation.
+- `scripts/manage-skills/lib/state.mjs`: state-root selection, manifest schema, atomic manifest read/write, target/catalog identity.
+- `scripts/manage-skills/lib/links.mjs`: one-level target scan, link classification, source/link identity checks.
+- `scripts/manage-skills/lib/plan.mjs`: desired-state reconciliation and `PlanSet` construction.
+- `scripts/manage-skills/lib/transaction.mjs`: locks, journal, quarantine, identity rechecks, apply and recovery.
+- `scripts/manage-skills/lib/interactive.mjs`: TTY menus, multi-select, preview, confirmation, and terminal cleanup.
+- `scripts/manage-skills/tests/catalog.test.mjs`: catalog and selector tests.
+- `scripts/manage-skills/tests/targets.test.mjs`: runtime and global-boundary tests.
+- `scripts/manage-skills/tests/state.test.mjs`: manifest, identity, and lock tests.
+- `scripts/manage-skills/tests/links.test.mjs`: classification and safety tests.
+- `scripts/manage-skills/tests/transaction.test.mjs`: apply, race, quarantine, and recovery tests.
+- `scripts/manage-skills/tests/interactive.test.mjs`: TTY orchestration tests.
+- `scripts/manage-skills/tests/cli.test.mjs`: command, JSON, and exit-code tests.
+- `scripts/manage-skills/README.md`: user-facing operation and safety documentation.
 
-### Modified files
+### Modified documentation files
 
-- `docs/superpowers/plans/2026-09-20-manage-skills.md`: this plan only; implementation tasks must not alter the approved design spec.
-- `home-k3s-pc/tools/ai-dsh/README.md`: add the final operational section after the tool is verified; no YAML change.
+- `README.md` in `bamhub-ai-tools`: add the tool entry and global-only boundary.
+- `AGENTS.md` in `bamhub-ai-tools`: correct skill category count and document `.test.mjs` feature tests.
+- `home-k3s-pc/tools/ai-dsh/README.md` in `maomao-deploy`: document human checkout, actual PVC mappings, runtime gate, and tool operation. This is a separate repository change and test boundary.
+
+Do not modify the old `dsh-runner` plan as part of manager implementation. It remains the historical baseline for PVC, `/work`, `DSH_HOME`, and manual image upgrades. Correct stale deployment README facts only when verified against the current YAML.
 
 ---
 
-### Task 1: Create the feature skeleton and test harness
+### Task 0: Record the real DSH runtime gate before implementation
 
 **Files:**
-- Create: `scripts/manage-skills/manage-skills`
-- Create: `scripts/manage-skills/manage-skills.mjs`
-- Create: `scripts/manage-skills/lib/catalog.mjs`
-- Create: `scripts/manage-skills/lib/links.mjs`
-- Create: `scripts/manage-skills/lib/runtimes.mjs`
-- Create: `scripts/manage-skills/lib/plan.mjs`
-- Create: `scripts/manage-skills/lib/interactive.mjs`
-- Create: `scripts/manage-skills/tests/catalog.test.mjs`
-- Create: `scripts/manage-skills/tests/links.test.mjs`
-- Create: `scripts/manage-skills/tests/runtimes.test.mjs`
-- Create: `scripts/manage-skills/tests/manage-skills.test.mjs`
+- Read-only: `home-k3s-pc/tools/ai-dsh/ai-dsh-web.yaml`
+- Read-only: `home-k3s-pc/tools/ai-dsh/README.md`
+- Read-only: running Pod `ai-dsh-web` in context `home-pc-loc`
+- Record findings in the implementation report, not source code.
 
 **Interfaces:**
-- Every library is ESM and exports named functions; later tasks define the concrete signatures.
-- `manage-skills.mjs` exports `runCli(argv, io)` so tests can invoke it without spawning a process.
-- Tests create and remove temporary directories with `fs.mkdtemp` and `t.after`.
+- Gate result: `{ pod, container, dshHome, checkoutCandidates, hostSkillFilesystem, hostToolSkill, activePreset, discoveryEvidence }`.
 
-- [ ] **Step 1: Write the failing CLI smoke test**
-
-Add a test that imports `runCli` and asserts an empty temporary catalog returns a structured result with `exitCode: 0`, `catalog`, and `targets` fields for `status`.
-
-```js
-const result = await runCli(['status', '--catalog', catalog, '--target', target, '--json'], { stdout, stderr });
-assert.equal(result.exitCode, 0);
-assert.equal(result.report.catalog.root, catalog);
-assert.deepEqual(result.report.targets[0].entries, []);
-```
-
-- [ ] **Step 2: Run the focused test and verify it fails**
+- [ ] **Step 1: Verify current deployment paths and container**
 
 Run:
 
 ```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
+kubectl --context home-pc-loc -n tools get pod -l app=ai-dsh-web -o wide
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- env | grep -E '^(HOME|DSH_HOME|DSH_AGENTS_HOME)='
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- dsh --profile web --dump-config
 ```
 
-Expected: FAIL because `runCli` and the feature files do not exist.
+Expected facts: `DSH_HOME=/opt/data/dsh`; current output explicitly records whether `skill-filesystem` and `tool-skill` are disabled.
 
-- [ ] **Step 3: Add the minimal module and wrapper skeleton**
+- [ ] **Step 2: Locate the human-managed catalog checkout**
 
-Implement the exported `runCli` placeholder, a command validation error for unsupported commands, and the wrapper:
+Run:
 
 ```bash
-#!/usr/bin/env bash
-set -euo pipefail
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
-exec node "$script_dir/manage-skills.mjs" "$@"
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- \
+  find /work -maxdepth 5 -type d -name skills -print
 ```
 
-Do not add business behavior in this task.
-
-- [ ] **Step 4: Run the focused test and verify it passes**
-
-Run the same command. Expected: PASS for the skeleton contract.
-
-- [ ] **Step 5: Commit the skeleton**
+For each candidate, verify:
 
 ```bash
-git add scripts/manage-skills
-git commit -m "feat: scaffold skill link manager"
+git -C <checkout> rev-parse --show-toplevel
+test -d <checkout>/skills
+git -C <checkout> status --short
 ```
 
-### Task 2: Implement catalog discovery and validation
+Expected: no implementation code assumes a fixed checkout path; an absent checkout is a documented prerequisite failure.
+
+- [ ] **Step 3: Record the DSH gate as unresolved if provider/preset is disabled**
+
+If the dump shows host `skill-filesystem` or `tool-skill` disabled, mark production discovery as blocked. Do not “fix” it by adding an unapproved profile patch in this feature. The manager can still be implemented and tested as a filesystem tool, but final DSH acceptance remains pending a separate runtime configuration decision.
+
+- [ ] **Step 4: Commit no files**
+
+This task is a read-only gate. Do not commit runtime output, Pod paths, or generated reports into the repository.
+
+### Task 1: Implement catalog resolution and valid skill scanning
 
 **Files:**
-- Modify: `scripts/manage-skills/lib/catalog.mjs`
+- Create: `scripts/manage-skills/lib/catalog.mjs`
 - Test: `scripts/manage-skills/tests/catalog.test.mjs`
 
 **Interfaces:**
+- `resolveCatalog({ explicitPath, env, scriptFile, interactivePath }) -> Promise<{ root, source }>` or a typed error.
 - `discoverCatalog({ catalogRoot }) -> Promise<{ root, skills, invalid, duplicates }>`.
-- Each valid skill is `{ name, description, sourceDir, skillFile, relativeSource }`.
-- Invalid entries are `{ path, reason }`.
-- Duplicate groups are `{ name, candidates }`.
-- `resolveCatalog({ explicitPath, env, scriptFile }) -> Promise<{ path, source } | { path: null, candidates }>`; it must not create a directory.
-- `isValidSkillName(name) -> boolean`.
+- Valid skill: `{ name, description, sourceDir, skillFile, relativeSource, sourceIdentity }`.
+- Selector: `{ name, sourceRelative?, linkName? }`.
+- `resolveSelectors(selectors, catalog) -> { selections, errors }`.
 
-- [ ] **Step 1: Write failing catalog tests**
+- [ ] **Step 1: Write failing tests for catalog precedence**
 
-Cover: recursive `SKILL.md` discovery, required frontmatter, valid kebab-case names, invalid names, missing frontmatter, duplicate names, and script-relative fallback.
+Cover explicit path, environment path, script-relative candidate, and interactive path. Assert explicit/env invalid paths fail without falling back; derived missing path returns a selectable missing candidate; no path is created.
 
-Use a fixture such as:
+- [ ] **Step 2: Write failing scanner tests**
 
-```text
-catalog/
-├── superpowers/brainstorming/SKILL.md
-├── bamhub/architecture/playbook-design/SKILL.md
-└── bad/Invalid_Name/SKILL.md
-```
+Construct temporary bundles containing valid, invalid, missing-frontmatter, duplicate, symlinked-`SKILL.md`, and escaping-resource cases. Assert only valid bundles enter `skills` and invalid entries include a reason.
 
-Assert that only valid entries are returned and duplicates are reported without choosing one.
-
-- [ ] **Step 2: Run the tests and verify failure**
+- [ ] **Step 3: Run focused tests and verify failure**
 
 ```bash
 node --test scripts/manage-skills/tests/catalog.test.mjs
 ```
 
-Expected: FAIL with missing exports or missing implementation.
+Expected: FAIL because the module does not exist.
 
-- [ ] **Step 3: Implement scanner and frontmatter extraction**
+- [ ] **Step 4: Implement deterministic frontmatter parsing**
 
-Recursively traverse directories with `readdir({ withFileTypes: true })`, skip symlinked directories, locate direct `SKILL.md` files, read only the YAML frontmatter needed for `name` and `description`, and retain the source directory and catalog-relative path. Resolve the catalog root and reject a non-directory path.
+Accept only a `---`-delimited frontmatter block and top-level single-line `name:`/`description:` values with optional matching quotes. Reject multiline/nested/duplicate required keys and missing values. Use `lstat` for `SKILL.md`, `realpath` for bundle/source identity, and reject any source/resource symlink that resolves outside the catalog.
 
-Use path-boundary helpers for later ownership checks; do not use string prefix checks.
+- [ ] **Step 5: Implement selector resolution**
 
-- [ ] **Step 4: Implement catalog resolution**
+Resolve an unqualified name only when unique. Resolve a `sourceRelative` selector only when it matches one valid skill. Validate optional `linkName` with the same kebab-case rule and reject collisions within one target.
 
-Resolve in exact order: explicit path, `MANAGE_SKILLS_CATALOG`, path derived from `scripts/manage-skills/manage-skills.mjs` by walking to the repository root and appending `skills`, then no candidate. Existing candidates are returned for interactive confirmation; no candidate is silently selected when the user must choose.
-
-- [ ] **Step 5: Run focused tests and verify pass**
+- [ ] **Step 6: Run focused tests and verify pass**
 
 ```bash
 node --test scripts/manage-skills/tests/catalog.test.mjs
@@ -170,93 +159,143 @@ node --test scripts/manage-skills/tests/catalog.test.mjs
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add scripts/manage-skills/lib/catalog.mjs scripts/manage-skills/tests/catalog.test.mjs
-git commit -m "feat: discover skill catalog entries"
+git commit -m "feat: validate skill catalog entries"
 ```
 
-### Task 3: Implement safe link classification and plan generation
+### Task 2: Implement runtime detection and target safety
 
 **Files:**
-- Modify: `scripts/manage-skills/lib/links.mjs`
-- Modify: `scripts/manage-skills/lib/plan.mjs`
-- Test: `scripts/manage-skills/tests/links.test.mjs`
+- Create: `scripts/manage-skills/lib/targets.mjs`
+- Test: `scripts/manage-skills/tests/targets.test.mjs`
 
 **Interfaces:**
-- `classifyEntry({ entryPath, catalogRoot }) -> Promise<EntryState>` where `EntryState.kind` is `managed-valid`, `managed-broken`, `foreign-symlink`, `regular-file`, `regular-directory`, or `unknown`.
-- `scanTarget({ targetRoot, catalogRoot }) -> Promise<EntryState[]>`.
-- `buildPlan({ targetRoot, catalogRoot, skills, enabledNames, pruneBroken }) -> Promise<Plan>`.
-- `Plan` is `{ targetRoot, create, remove, keep, conflicts, protected }`.
-- `createLinkPlan({ linkPath, sourceDir }) -> { linkPath, sourceDir, relativeTarget }`.
+- `detectRuntimeTargets({ env, home }) -> Promise<RuntimeTarget[]>`.
+- `RuntimeTarget = { id, label, path, source, exists, selectable }`.
+- `validateTarget({ targetPath, catalogRoot, mode }) -> Promise<TargetIdentity>`.
+- `TargetIdentity = { path, realPath, dev, ino, existed, stateRoot }`.
+- `resolveTargetSelection({ runtimes, customPath, selectedIds }) -> Promise<RuntimeTarget[]>`.
 
-- [ ] **Step 1: Write failing state-classification tests**
+- [ ] **Step 1: Write failing runtime tests**
 
-Construct temporary catalog, target, and outside directories. Test:
+Assert:
 
 ```text
-valid link       -> catalog skill directory
-broken link      -> missing path under catalog
-foreign link     -> outside directory
-regular file
-regular directory
-catalog path prefix collision: skills-evil
+DSH_HOME=/tmp/dsh -> /tmp/dsh/skills
+DSH_HOME unset, HOME=/tmp/home -> /tmp/home/.dsh/skills fallback candidate
+HOME=/tmp/home -> /tmp/home/.agents/skills
+HOME=/tmp/home -> /tmp/home/.claude/skills
 ```
 
-Assert foreign links, files, and directories are protected.
+Missing standard directories are selectable but not created by detection.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [ ] **Step 2: Write failing target-boundary tests**
+
+Reject target equal to catalog, target inside catalog, catalog inside target, target under a Git worktree, target project `.agents/skills`/`.claude/skills`, symlink ancestor, non-directory existing target, and missing target with missing parent. Accept a missing final directory under a safe existing global parent.
+
+- [ ] **Step 3: Run focused tests and verify failure**
 
 ```bash
-node --test scripts/manage-skills/tests/links.test.mjs
+node --test scripts/manage-skills/tests/targets.test.mjs
 ```
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement path-boundary and link classification**
+- [ ] **Step 4: Implement canonical path and global guard**
 
-Use `lstat` so broken links are observable. For valid links use `realpath`; for broken links resolve `readlink` relative to the link parent and normalize lexically. Accept only targets that are equal to the catalog root or descendants with a path-segment boundary. Reject catalog-contained symlinks whose real target escapes the catalog.
+Resolve standard runtime roots, require absolute normalized paths, inspect the nearest existing ancestor for `.git`, reject unsafe parent symlinks, and return a typed error with the exact rejected reason. `--target` is mutually exclusive with `--runtime`; repeated `--runtime` values are allowed; `all` means only explicitly confirmed detected standard roots.
 
-- [ ] **Step 4: Write failing plan tests**
-
-Test that an enabled selection creates missing links, preserves an existing correct link, removes selected managed links, leaves conflicts protected, and does not remove broken links unless `pruneBroken` is true.
-
-- [ ] **Step 5: Implement plan generation**
-
-Map selected catalog skills by runtime name. Refuse ambiguous duplicate names unless a caller supplies an explicit source identity and optional link alias. Calculate every new target with `path.relative(path.dirname(linkPath), sourceDir)`.
-
-- [ ] **Step 6: Run focused tests and verify pass**
+- [ ] **Step 5: Run focused tests and verify pass**
 
 ```bash
-node --test scripts/manage-skills/tests/links.test.mjs
+node --test scripts/manage-skills/tests/targets.test.mjs
 ```
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add scripts/manage-skills/lib/links.mjs scripts/manage-skills/lib/plan.mjs scripts/manage-skills/tests/links.test.mjs
-git commit -m "feat: plan safe skill symlink changes"
+git add scripts/manage-skills/lib/targets.mjs scripts/manage-skills/tests/targets.test.mjs
+git commit -m "feat: guard global skill targets"
 ```
 
-### Task 4: Implement link application and post-apply verification
+### Task 3: Implement per-target state, manifest, and lock
 
 **Files:**
-- Modify: `scripts/manage-skills/lib/links.mjs`
-- Modify: `scripts/manage-skills/lib/plan.mjs`
+- Create: `scripts/manage-skills/lib/state.mjs`
+- Test: `scripts/manage-skills/tests/state.test.mjs`
+
+**Interfaces:**
+- `stateRootForTarget({ runtimeId, env, home }) -> string`.
+- `loadManifest({ stateRoot, targetIdentity }) -> Promise<ManifestState>`.
+- `writeManifestAtomic({ stateRoot, targetIdentity, manifest }) -> Promise<void>`.
+- `manifestIdentity({ catalogIdentity, targetIdentity }) -> string`.
+- `acquireTargetLock({ stateRoot, targetIdentity }) -> Promise<LockHandle>`.
+- `LockHandle.release() -> Promise<void>`.
+- `ManifestState = { version: 1, target, catalog, links }`.
+
+- [ ] **Step 1: Write failing manifest tests**
+
+Cover missing manifest, valid manifest, malformed manifest, catalog identity mismatch, target identity mismatch, atomic temp-file replacement, and manifest stored outside target skill root.
+
+- [ ] **Step 2: Write failing lock tests**
+
+Cover exclusive lock acquisition, second acquisition failure with owner/time, release, and stale lock requiring explicit cleanup. Do not silently steal a lock.
+
+- [ ] **Step 3: Run focused tests and verify failure**
+
+```bash
+node --test scripts/manage-skills/tests/state.test.mjs
+```
+
+Expected: FAIL.
+
+- [ ] **Step 4: Implement state and lock primitives**
+
+Use JSON written to a temporary file in the same state directory followed by rename. Include target/catalog `dev`/`ino`, canonical paths, Git remote/commit when available, link name, source-relative path, source identity, and relative target. Use exclusive directory creation or an equivalent atomic primitive for the lock. If state is unavailable, read-only commands may report it but apply must fail before mutation.
+
+- [ ] **Step 5: Run focused tests and verify pass**
+
+```bash
+node --test scripts/manage-skills/tests/state.test.mjs
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/manage-skills/lib/state.mjs scripts/manage-skills/tests/state.test.mjs
+git commit -m "feat: persist skill link ownership"
+```
+
+### Task 4: Implement link classification and desired-state PlanSet
+
+**Files:**
+- Create: `scripts/manage-skills/lib/links.mjs`
+- Create: `scripts/manage-skills/lib/plan.mjs`
 - Test: `scripts/manage-skills/tests/links.test.mjs`
 
 **Interfaces:**
-- `applyPlan(plan, { pruneBroken, dryRun }) -> Promise<{ applied, skipped, failed }>`.
-- `verifyPlan(plan) -> Promise<{ ok, created, removed, mismatches }>`.
+- `scanTarget({ targetIdentity, catalog, manifest }) -> Promise<EntryState[]>` scanning only direct children of target root.
+- `EntryState = { linkPath, kind, linkTarget?, realTarget?, manifestEntry?, reason?, identity? }`.
+- `buildPlanSet({ targets, catalog, desiredSelections, options }) -> Promise<PlanSet>`.
+- `PlanSet = { plans: Plan[], protected, conflicts }`.
+- `Plan = { target, catalog, desired, create, remove, keep, conflicts, protected, fingerprint }`.
 
-- [ ] **Step 1: Write failing application tests**
+- [ ] **Step 1: Write failing classification tests**
 
-Assert that applying a create plan makes a symbolic link with the expected relative target, applying a remove plan deletes only the link itself, `dryRun` makes no changes, and an entity conflict is reported without being overwritten.
+Cover manifest-owned valid link, manifest-owned broken link, unmanaged valid link, unmanaged broken link, foreign link, regular file, regular directory, target missing, and catalog-prefix collision. Assert only manifest-owned links can enter `remove`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [ ] **Step 2: Write failing plan tests**
+
+Cover create/keep/remove, duplicate selectors, alias collision, manifest mismatch, missing desired-state input, `--disable-all`, and multiple targets with independent plans. Assert `--enable` means final desired set, not additive mode.
+
+- [ ] **Step 3: Run focused tests and verify failure**
 
 ```bash
 node --test scripts/manage-skills/tests/links.test.mjs
@@ -264,13 +303,9 @@ node --test scripts/manage-skills/tests/links.test.mjs
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement safe application**
+- [ ] **Step 4: Implement classification and plan generation**
 
-Create the target root only after the caller confirms the plan. Use `symlink` for creation and `unlink` for removal. Before each mutation, re-run `lstat` and verify the entry still matches the planned state. Never call recursive removal. Collect per-item errors instead of hiding them.
-
-- [ ] **Step 4: Implement post-apply verification**
-
-Reclassify every planned create/remove entry, verify target files contain `SKILL.md`, and return mismatches without claiming success when verification fails.
+Use `lstat` so broken links remain observable. Match removal candidates against manifest link path, recorded relative target, source identity, target identity, and catalog identity. Classify all other entries as protected/unmanaged. Build one plan per target and a stable JSON-serializable PlanSet.
 
 - [ ] **Step 5: Run focused tests and verify pass**
 
@@ -284,308 +319,311 @@ Expected: PASS.
 
 ```bash
 git add scripts/manage-skills/lib/links.mjs scripts/manage-skills/lib/plan.mjs scripts/manage-skills/tests/links.test.mjs
-git commit -m "feat: apply and verify skill symlinks"
+git commit -m "feat: plan manifest-owned skill links"
 ```
 
-### Task 5: Implement runtime detection
+### Task 5: Implement journaled transaction, quarantine, and race checks
 
 **Files:**
-- Modify: `scripts/manage-skills/lib/runtimes.mjs`
-- Test: `scripts/manage-skills/tests/runtimes.test.mjs`
+- Create: `scripts/manage-skills/lib/transaction.mjs`
+- Test: `scripts/manage-skills/tests/transaction.test.mjs`
 
 **Interfaces:**
-- `detectRuntimes({ env, home, fs }) -> Promise<RuntimeTarget[]>`.
-- A runtime target is `{ id, label, path, source, exists, selectable }`.
-- `resolveTarget({ runtimeId, customPath, env, home }) -> string`.
+- `applyPlanSet(planSet, { state, dryRun }) -> Promise<ApplyReport>`.
+- `ApplyReport = { targets: [{ target, applied, skipped, failed, journal, verified }], exitCode }`.
+- `verifyPlan(plan) -> Promise<{ ok, mismatches }>`.
+- `recoverJournal({ stateRoot, journalPath }) -> Promise<RecoveryReport>`.
 
-- [ ] **Step 1: Write failing runtime tests**
+- [ ] **Step 1: Write failing transaction tests**
 
-Use a temporary home and environment to assert:
+Cover no mutation during dry-run, create link, quarantine removal, atomic manifest update, post-apply verification, source replacement, target link replacement, regular-file replacement, permission failure, interrupted transaction recovery, and second process lock failure.
 
-```text
-DSH_HOME=/tmp/dsh       -> /tmp/dsh/skills
-HOME=/tmp/home          -> /tmp/home/.agents/skills
-HOME=/tmp/home          -> /tmp/home/.claude/skills
-custom path             -> exact user path
-```
-
-Assert that missing standard directories are selectable but not auto-created and that DSH takes its path from `DSH_HOME`.
-
-- [ ] **Step 2: Run tests and verify failure**
+- [ ] **Step 2: Run focused tests and verify failure**
 
 ```bash
-node --test scripts/manage-skills/tests/runtimes.test.mjs
+node --test scripts/manage-skills/tests/transaction.test.mjs
 ```
 
 Expected: FAIL.
 
-- [ ] **Step 3: Implement runtime detection**
+- [ ] **Step 3: Implement preflight and identity rechecks**
 
-Return DSH, Codex, and Claude candidates with human-readable source metadata. Do not require directories to exist for candidate display, but let the interactive layer decide whether to select them. Reject empty custom paths and normalize absolute paths.
+Before every mutation, re-lstat the expected path and compare type, dev/ino, target text, source identity, catalog identity, and target identity. If anything differs, mark a conflict and perform no mutation for that item. Revalidate sourceDir and regular `SKILL.md` immediately before creating a link.
 
-- [ ] **Step 4: Run focused tests and verify pass**
+- [ ] **Step 4: Implement lock/journal/quarantine flow**
 
-```bash
-node --test scripts/manage-skills/tests/runtimes.test.mjs
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add scripts/manage-skills/lib/runtimes.mjs scripts/manage-skills/tests/runtimes.test.mjs
-git commit -m "feat: detect global skill runtimes"
-```
-
-### Task 6: Implement the native interactive wizard
-
-**Files:**
-- Modify: `scripts/manage-skills/lib/interactive.mjs`
-- Test: `scripts/manage-skills/tests/manage-skills.test.mjs`
-
-**Interfaces:**
-- `runInteractive({ catalogResolver, runtimeDetector, io }) -> Promise<InteractiveSelection | { cancelled: true }>`.
-- Interactive selection returns `{ catalogRoot, targets, enabledSkills, pruneBroken }`.
-- `confirmPlan(plan, io) -> Promise<boolean>`.
-
-- [ ] **Step 1: Write failing orchestration tests**
-
-Feed simulated input to cover: catalog confirmation, runtime selection, multi-select skill selection, cancellation, final rejection, and final approval. Assert no filesystem mutation occurs before approval.
-
-- [ ] **Step 2: Run tests and verify failure**
-
-```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
-```
-
-Expected: FAIL.
-
-- [ ] **Step 3: Implement TTY menu primitives**
-
-Use `readline` and raw stdin only when `stdin.isTTY && stdout.isTTY`. Support arrow movement, Space, `a`, `n`, Enter, Escape, and Ctrl-C. Render status markers and source paths. Keep all filesystem changes outside this module.
-
-- [ ] **Step 4: Implement wizard stages**
-
-Run in order: environment scan, catalog confirmation/input, catalog scan report, runtime multi-select, target state scan, final skill multi-select, plan preview, confirmation. Existing valid managed links are initially selected; conflicts and protected entries are visible but not selectable.
-
-- [ ] **Step 5: Handle non-TTY behavior**
-
-Return a structured error instructing callers to use parameter mode. Do not fall back to guessed defaults or mutate files.
-
-- [ ] **Step 6: Run focused tests and verify pass**
-
-```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
-```
-
-Expected: PASS.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add scripts/manage-skills/lib/interactive.mjs scripts/manage-skills/tests/manage-skills.test.mjs
-git commit -m "feat: add interactive skill selection"
-```
-
-### Task 7: Complete CLI commands and JSON output
-
-**Files:**
-- Modify: `scripts/manage-skills/manage-skills.mjs`
-- Modify: `scripts/manage-skills/tests/manage-skills.test.mjs`
-- Modify: `scripts/manage-skills/manage-skills`
-
-**Interfaces:**
-- Commands: default interactive mode, `status`, `plan`, `apply`.
-- Options: `--catalog`, `--target`, `--runtime`, `--enable`, `--manifest`, `--json`, `--non-interactive`, `--yes`, `--prune-broken`, `--dry-run`.
-- Exit code `0` for successful verified work, `1` for operational failure or verification mismatch, `2` for invalid arguments.
-
-- [ ] **Step 1: Write failing command tests**
-
-Test `status --json`, `plan`, `apply --yes`, invalid command, missing catalog, non-interactive without `--yes`, and `--runtime dsh|codex|claude|custom` target resolution. Assert JSON contains catalog, targets, entries, and plan arrays without human-only decoration.
-
-- [ ] **Step 2: Run tests and verify failure**
-
-```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
-```
-
-Expected: FAIL.
-
-- [ ] **Step 3: Implement command parsing and orchestration**
-
-Keep parsing dependency-free. Resolve catalog, discover skills, resolve targets, build one plan per target, and apply only after confirmation. For `all`, use only targets explicitly selected or detected and confirmed; never invent missing roots. `--enable` accepts comma-separated runtime names, while `--manifest` reads one non-empty name per line and rejects unknown names.
-
-- [ ] **Step 4: Implement structured output and errors**
-
-Human mode prints scan, plan, execution, and verification summaries. JSON mode prints one object and sends diagnostics to stderr. Do not print secrets or full environment values beyond relevant paths.
+Acquire all target locks before any mutation. Create links only with a non-overwriting symlink operation. Rename manifest-owned removals to a quarantine directory on the same filesystem. Write a journal before the first mutation, update it after every mutation, atomically update the manifest, verify, then remove quarantine. Leave journal/quarantine on failure and return `exitCode: 1`.
 
 - [ ] **Step 5: Run focused tests and verify pass**
 
 ```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
+node --test scripts/manage-skills/tests/transaction.test.mjs
 ```
 
 Expected: PASS.
 
-- [ ] **Step 6: Check executable entry**
-
-Run:
+- [ ] **Step 6: Commit**
 
 ```bash
-chmod +x scripts/manage-skills/manage-skills
-scripts/manage-skills/manage-skills --help
+git add scripts/manage-skills/lib/transaction.mjs scripts/manage-skills/tests/transaction.test.mjs
+git commit -m "feat: apply skill links with recovery"
 ```
 
-Expected: usage output and exit code `0`.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add scripts/manage-skills/manage-skills scripts/manage-skills/manage-skills.mjs scripts/manage-skills/tests/manage-skills.test.mjs
-git commit -m "feat: expose skill link management CLI"
-```
-
-### Task 8: Add operational documentation
+### Task 6: Implement interactive wizard
 
 **Files:**
-- Create: `scripts/manage-skills/README.md` in `bamhub-ai-tools`
-- Modify: `home-k3s-pc/tools/ai-dsh/README.md` in `maomao-deploy`
+- Create: `scripts/manage-skills/lib/interactive.mjs`
+- Test: `scripts/manage-skills/tests/interactive.test.mjs`
 
 **Interfaces:**
-- Documentation must describe the interactive default, catalog selection order, global runtime roots, safety rules, Pod path, persistence, and non-interactive examples.
-- The tool README is committed in `bamhub-ai-tools`; the deployment README is committed separately in `maomao-deploy`.
+- `runInteractive({ catalogResolver, targetDetector, io }) -> Promise<InteractiveSelection | { cancelled: true }>`.
+- `InteractiveSelection = { catalogRoot, targets, desiredSelections, disableAll }`.
+- `confirmPlanSet(planSet, io) -> Promise<boolean>`.
 
-- [ ] **Step 1: Write documentation checks**
+- [ ] **Step 1: Write failing wizard tests**
 
-Add assertions in `scripts/manage-skills/tests/manage-skills.test.mjs` that the README contains `DSH_HOME/skills`, `MANAGE_SKILLS_CATALOG`, relative links, protected regular files/directories/foreign links, and the interactive workflow. Add checks to the DSH README for `/opt/data/dsh/skills`, `/work/bamhub-ai-tools`, and Pod restart persistence.
+Simulate catalog confirmation/input, runtime selection, desired skill selection, preview, final rejection, final approval, Esc, EOF, Ctrl-C, and an exception. Assert no mkdir, lock, manifest, symlink, quarantine, or delete action occurs before final approval.
 
-- [ ] **Step 2: Run checks and verify failure**
+- [ ] **Step 2: Run focused tests and verify failure**
 
 ```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
+node --test scripts/manage-skills/tests/interactive.test.mjs
 ```
 
-Expected: FAIL until documentation exists.
+Expected: FAIL.
 
-- [ ] **Step 3: Write the tool README**
+- [ ] **Step 3: Implement terminal-safe menu primitives**
 
-Document the normal command:
+Use Node `readline`; enter raw mode only for TTY. In `try/finally`, restore raw mode, close readline, remove signal handlers, and handle EOF/SIGINT/SIGTERM. Support arrows, Space, `a`, `n`, Enter, and Escape. Do not perform filesystem writes in this module.
+
+- [ ] **Step 4: Implement fixed wizard order**
+
+Scan environment → confirm catalog → scan valid skills → select global targets → scan manifest/link state → select final desired skills → render complete per-target PlanSet → final confirmation → hand PlanSet to transaction layer. Show protected/unmanaged entries but never make them deletable by normal selection.
+
+- [ ] **Step 5: Run focused tests and verify pass**
+
+```bash
+node --test scripts/manage-skills/tests/interactive.test.mjs
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/manage-skills/lib/interactive.mjs scripts/manage-skills/tests/interactive.test.mjs
+git commit -m "feat: add interactive skill manager"
+```
+
+### Task 7: Complete CLI commands, selectors, JSON, and exit codes
+
+**Files:**
+- Create: `scripts/manage-skills/manage-skills.mjs`
+- Create: `scripts/manage-skills/manage-skills`
+- Test: `scripts/manage-skills/tests/cli.test.mjs`
+
+**Interfaces:**
+- Commands: default interactive, `status`, `plan`, `apply`.
+- Options: `--catalog`, repeatable `--runtime`, single `--target`, `--enable`, `--disable-all`, `--json`, `--non-interactive`, `--yes`, `--dry-run`.
+- `--target` and `--runtime` are mutually exclusive; `--runtime all` expands only confirmed detected standard roots.
+- `apply` requires exactly one desired-state input: `--enable`, `--disable-all`, or interactive selection. `--yes` confirms non-interactive apply; `--non-interactive` without `--yes` fails.
+- Exit codes: `0` verified success; `1` operational/verification/conflict failure; `2` invalid arguments or missing required selection.
+- JSON report: `{ ok, exitCode, catalog, targets: [{ target, entries, plan, result }], errors }`; stdout contains JSON only, diagnostics go stderr.
+
+- [ ] **Step 1: Write failing CLI tests**
+
+Cover invalid command, invalid catalog, status with missing target, DSH fallback, `--target`/`--runtime` conflict, missing desired-state input, `--disable-all`, selector alias, `plan`, `apply --yes`, JSON-only stdout, and exit-code mapping. Move the earlier empty-catalog status smoke test here; Task 1 must test only invalid-command validation.
+
+- [ ] **Step 2: Run focused tests and verify failure**
+
+```bash
+node --test scripts/manage-skills/tests/cli.test.mjs
+```
+
+Expected: FAIL.
+
+- [ ] **Step 3: Implement parser and orchestration**
+
+Keep parsing dependency-free. Resolve catalog, discover valid skills, resolve targets, load state, build a PlanSet, and call the transaction layer only after explicit confirmation. `--enable` is the final desired collection; it is never an additive shortcut.
+
+- [ ] **Step 4: Implement wrapper and executable checks**
+
+The POSIX wrapper resolves its own directory and executes `node "$script_dir/manage-skills.mjs" "$@"`. Keep direct `node .../manage-skills.mjs` documented for environments without the wrapper. Test `test -x`, `sh -n`, and `node --check` for every `.mjs` module.
+
+- [ ] **Step 5: Run focused tests and verify pass**
+
+```bash
+node --test scripts/manage-skills/tests/cli.test.mjs
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/manage-skills/manage-skills scripts/manage-skills/manage-skills.mjs scripts/manage-skills/tests/cli.test.mjs
+git commit -m "feat: expose skill link CLI"
+```
+
+### Task 8: Add tool and repository documentation
+
+**Files:**
+- Create: `scripts/manage-skills/README.md` in `bamhub-ai-tools`.
+- Modify: `README.md` in `bamhub-ai-tools`.
+- Modify: `AGENTS.md` in `bamhub-ai-tools`.
+- Modify: `home-k3s-pc/tools/ai-dsh/README.md` in `maomao-deploy`.
+
+**Interfaces:**
+- bamhub tests read only bamhub files; they must not import or read the separate deployment repository.
+- Deployment README is reviewed and committed in `maomao-deploy` separately.
+
+- [ ] **Step 1: Write failing documentation tests for bamhub files only**
+
+Assert the tool README documents catalog precedence, manifest ownership, global-only target guard, DSH/Codex/Claude roots, `--disable-all`, Pod checkout prerequisite, and no automatic clone/update. Assert root README links to the tool. Assert AGENTS states six skill ownership categories and the `.mjs` feature-test command.
+
+- [ ] **Step 2: Run documentation tests and verify failure**
+
+```bash
+node --test scripts/manage-skills/tests/cli.test.mjs
+```
+
+Expected: FAIL until the documentation exists.
+
+- [ ] **Step 3: Write tool and root README content**
+
+Document:
 
 ```bash
 scripts/manage-skills/manage-skills
+scripts/manage-skills/manage-skills.mjs status --catalog <path> --runtime dsh --json
+scripts/manage-skills/manage-skills.mjs apply --catalog <path> --runtime dsh --enable brainstorming --yes
 ```
 
-Document catalog resolution, DSH/Codex/Claude targets, safety behavior, `status --json`, `plan`, `apply --yes`, and `--prune-broken`. State clearly that the tool manages global links only and never edits source skills.
+State that links without manifest ownership are protected, DSH Web discovery is gated by the active profile/preset, and the tool does not clone or update the catalog. Replace the temporary root README design/plan reference with a link to `scripts/manage-skills/README.md` once that file exists.
 
-- [ ] **Step 4: Update the DSH deployment README**
+- [ ] **Step 4: Update AGENTS.md**
 
-Add the operational command:
+Correct the category count from five to six and add:
 
-```bash
-kubectl --context home-pc-loc -n tools exec -it deploy/ai-dsh-web -- \
-  /work/bamhub-ai-tools/scripts/manage-skills/manage-skills
+```text
+node --test scripts/manage-skills/tests/*.test.mjs
 ```
 
-Explain that both `/opt/data/dsh/skills` and `/work/bamhub-ai-tools/skills` are on existing PVC-backed paths, so Pod restarts preserve links. Do not alter Kubernetes YAML in this task.
+Explain that new ESM tests in the feature directory use `.test.mjs`, matching existing repository tests.
 
-- [ ] **Step 5: Run documentation checks and diff checks**
+- [ ] **Step 5: Update deployment README separately**
+
+In `maomao-deploy`, document the actual mappings:
+
+```text
+/www/data/dsh/home/ -> /opt/data/dsh/
+/www/data/dsh/work/ -> /work/
+```
+
+Document manual checkout under `/work`, dynamic path discovery, `kubectl --context home-pc-loc -n tools exec -c ai-dsh`, current image tag authority (`ai-dsh-web.yaml`, not the historical placeholder), and the DSH skill provider gate. Reconcile any stale cordis patch wording with the current `--patch /etc/dsh/openviking.patch.yml` deployment before claiming the README is correct. Do not alter Kubernetes YAML in this task.
+
+- [ ] **Step 6: Run repository-specific documentation checks**
+
+In `bamhub-ai-tools`:
 
 ```bash
-node --test scripts/manage-skills/tests/manage-skills.test.mjs
+node --test scripts/manage-skills/tests/cli.test.mjs
 git diff --check
 ```
 
-Expected: PASS and no whitespace errors.
+In `maomao-deploy`, use a read-only grep/diff check for the new README section; do not make the bamhub test suite read across repositories.
 
-- [ ] **Step 6: Commit the tool documentation**
+- [ ] **Step 7: Commit separately**
 
-Run in `bamhub-ai-tools`:
+In `bamhub-ai-tools`:
 
 ```bash
-git add scripts/manage-skills/README.md scripts/manage-skills/tests/manage-skills.test.mjs
-git commit -m "docs: document skill link management"
+git add scripts/manage-skills/README.md README.md AGENTS.md scripts/manage-skills/tests/cli.test.mjs
+git commit -m "docs: document global skill links"
 ```
 
-Then update and commit the deployment README separately in `maomao-deploy`:
+In `maomao-deploy`, after checking `git status --short` and isolating unrelated existing changes:
 
 ```bash
-cd /Users/maomao/Documents/workspace/my-project/maomao-deploy
 git add home-k3s-pc/tools/ai-dsh/README.md
-git commit -m "docs: document DSH skill links"
+git commit -m "docs: document DSH skill link operations"
 ```
 
-### Task 9: Run repository verification and real Pod probe
+### Task 9: Run full verification and real runtime probes
 
 **Files:**
-- Verify: all `scripts/manage-skills/` files
-- Verify: `home-k3s-pc/tools/ai-dsh/README.md`
+- Verify: all `scripts/manage-skills/` files.
+- Verify: bamhub README/AGENTS changes.
+- Verify: deployment README in `maomao-deploy`.
 
-- [ ] **Step 1: Run focused tests**
+- [ ] **Step 1: Run focused syntax/tests**
 
 ```bash
 node --check scripts/manage-skills/manage-skills.mjs
+for file in scripts/manage-skills/lib/*.mjs; do node --check "$file"; done
 node --test scripts/manage-skills/tests/*.test.mjs
 ```
 
 Expected: all focused tests pass.
 
-- [ ] **Step 2: Run the repository's existing tests**
-
-Run the commands documented by `bamhub-ai-tools/AGENTS.md`:
+- [ ] **Step 2: Run existing bamhub tests with explicit real file groups**
 
 ```bash
-node --test tests/**/*.test.js
+node --test tests/*/*.test.js
 node --test tests/project/*.test.mjs
 node --test tests/skill-layout.test.mjs
 ```
 
-Expected: all existing repository tests pass. Do not add a package-manager or build command.
+These commands match the repository's current test layout; do not rely on an unconfigured `globstar` wildcard for all tests.
 
-- [ ] **Step 3: Run a local temporary end-to-end test**
+- [ ] **Step 3: Run local temporary end-to-end probe**
 
-Create temporary catalog and target roots, run the executable in `status`, `plan`, and `apply --yes` modes, verify links with `lstat`/`readlink`, then remove the temporary root. Confirm entity conflicts and foreign links remain unchanged.
+Create temporary catalog, state, target, foreign link, unmanaged link, and conflict entries. Run `status`, `plan`, `apply --yes`, verify `lstat/readlink/test -f`, interrupt/recover a journal, then remove only the temporary root. Confirm no real home directory changes.
 
-- [ ] **Step 4: Run a real Pod non-mutating probe**
+- [ ] **Step 4: Verify the human-managed Pod checkout**
 
-After the script is available at the Pod's cloned repository path, run:
+First locate the actual checkout; do not assume `/work/bamhub-ai-tools`:
 
 ```bash
-kubectl --context home-pc-loc -n tools exec deploy/ai-dsh-web -- \
-  /work/bamhub-ai-tools/scripts/manage-skills/manage-skills.mjs status \
-  --catalog /work/bamhub-ai-tools/skills \
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- find /work -maxdepth 5 -type d -name skills -print
+```
+
+Then set the user-confirmed catalog path and verify Git root, `skills/`, clean status/commit, and script availability. The tool does not create or update this checkout.
+
+- [ ] **Step 5: Run a non-production Pod probe**
+
+Use `node` explicitly and a temporary catalog/target under `/tmp`; do not execute a bare `.mjs` file:
+
+```bash
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- \
+  node <checkout>/scripts/manage-skills/manage-skills.mjs status \
+  --catalog <checkout>/skills \
   --target /tmp/dsh-skill-test \
   --json
 ```
 
-Expected: exit code `0`, valid JSON, and no changes under `/opt/data/dsh/skills`.
+Create a temporary valid skill under `/tmp`, run plan/apply, inspect the relative link, then clean the temporary target with a shell `trap`. Production `/opt/data/dsh/skills` must remain untouched during this step.
 
-- [ ] **Step 5: Run a real Pod temporary mutation probe**
+- [ ] **Step 6: Run the DSH runtime gate**
 
-Use a temporary catalog and target under `/tmp` to create, inspect, remove, and verify a relative link. Do not use the production DSH target until this probe passes.
-
-- [ ] **Step 6: Verify DSH sees a controlled test skill**
-
-Only after the temporary probe passes, use the interactive tool to enable one selected skill in `/opt/data/dsh/skills`, then verify:
+Use:
 
 ```bash
-kubectl --context home-pc-loc -n tools exec deploy/ai-dsh-web -- \
-  test -L /opt/data/dsh/skills/<skill-name>
-kubectl --context home-pc-loc -n tools exec deploy/ai-dsh-web -- \
-  test -f /opt/data/dsh/skills/<skill-name>/SKILL.md
+kubectl --context home-pc-loc -n tools exec -c ai-dsh <pod> -- \
+  dsh --profile web --dump-config
 ```
 
-Inspect DSH startup/discovery behavior without claiming success until the skill is visible in the actual runtime.
+If host `skill-filesystem`/`tool-skill` remain disabled, record production discovery as blocked and do not claim the manager is usable from the DSH Web agent. If an active preset is verified, enable one controlled manifest-owned link and perform an actual Web session/agent invocation plus a controlled source mutation probe. Verify `test -L`, `readlink`, `test -f`, and actual runtime visibility separately.
 
-- [ ] **Step 7: Commit final verification/documentation adjustments**
+- [ ] **Step 7: Review final repository states**
 
 ```bash
-git status --short
-git diff --check
-git commit -m "test: verify skill link manager runtime"
+git -C /Users/maomao/Documents/workspace/my-project/bamhub-ai-tools status --short
+git -C /Users/maomao/Documents/workspace/my-project/bamhub-ai-tools diff --check
+git -C /Users/maomao/Documents/workspace/my-project/maomao-deploy status --short
 ```
 
-Only commit if the verification changes are intentional; do not commit generated temporary files or runtime state.
+Do not create a “verification commit” unless source or documentation changes were intentionally made. Do not commit runtime state, manifests, journals, locks, quarantine files, or temporary catalog data.
 
 ---
 
@@ -593,16 +631,18 @@ Only commit if the verification changes are intentional; do not commit generated
 
 | Requirement | Covered by |
 |---|---|
-| User-selected catalog | Tasks 2 and 7 |
-| Script-relative default without `/work` hard-code | Task 2 |
-| DSH persistent `$DSH_HOME/skills` | Tasks 5, 8, 9 |
-| Codex and Claude global roots | Task 5 |
-| Interactive scan-confirm-select-preview-apply flow | Task 6 |
-| Relative links | Tasks 3 and 4 |
-| Regular files/directories protected | Tasks 3 and 4 |
-| Foreign links protected | Tasks 3 and 4 |
-| Broken links explicit cleanup only | Tasks 3, 4, and 7 |
-| Duplicate skill handling | Task 2 and Task 3 |
-| No npm dependencies | Task 1 and all tasks |
-| Real Pod verification | Task 9 |
-| Deployment documentation without YAML change | Task 8 |
+| User-selected catalog and no hard-coded checkout | Tasks 1, 8, 9 |
+| Global-only target guard | Task 2 |
+| DSH fallback and runtime roots | Task 2 |
+| Valid skill/source boundary | Task 1 |
+| Manifest ownership and no unsafe deletion | Task 3/4/5 |
+| Relative links | Task 4/5 |
+| Race and replacement protection | Task 5 |
+| Lock/journal/quarantine recovery | Task 3/5 |
+| Interactive scan-confirm-preview-apply flow | Task 6 |
+| Explicit non-interactive desired state | Task 7 |
+| No npm dependencies | All tasks |
+| Existing repository test conventions | Task 8/9 |
+| Existing PVC mapping and human checkout | Task 0/8/9 |
+| Current DSH profile/preset gate | Task 0/9 |
+| Real DSH discovery evidence | Task 9 only; never inferred from file existence |

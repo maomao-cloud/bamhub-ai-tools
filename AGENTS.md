@@ -2,7 +2,7 @@
 
 ## 项目结构与模块组织
 
-本仓库是一组 AI Agent skill，而非单一应用。skill 按所有权分为五类：`skills/superpowers/` 是上游 Superpowers 的完整本地镜像，禁止直接修改；`skills/caveman/` 是上游 Caveman 的完整 skill 镜像，禁止直接修改；`skills/addyosmani/` 是上游 Addy Osmani agent-skills 的完整 skill 镜像，禁止直接修改；`skills/darwin/` 是上游 Darwin skill 的完整镜像，禁止直接修改；`skills/bamhub/` 是可复用的 Bamhub 自有 skill，按领域分组；`skills/project/` 存放仅服务本仓库的能力，例如 `skills/project/sync-upstream-skills/` 与 Darwin 的本仓库适配层 `skills/project/darwin-skill-optimizer/`。每个 skill 以 `SKILL.md` 为入口；辅助脚本放在 `scripts/`，JavaScript 模块放在 `lib/`，示例或模板放在 `examples/` 或 `templates/`。测试在 `tests/` 中按领域组织。
+本仓库是一组 AI Agent skill，而非单一应用。skill 按所有权分为六类：`skills/superpowers/` 是上游 Superpowers 的完整本地镜像，禁止直接修改；`skills/caveman/` 是上游 Caveman 的完整 skill 镜像，禁止直接修改；`skills/addyosmani/` 是上游 Addy Osmani agent-skills 的完整 skill 镜像，禁止直接修改；`skills/darwin/` 是上游 Darwin skill 的完整镜像，禁止直接修改；`skills/bamhub/` 是可复用的 Bamhub 自有 skill，按领域分组；`skills/project/` 存放仅服务本仓库的能力，例如 `skills/project/sync-upstream-skills/` 与 Darwin 的本仓库适配层 `skills/project/darwin-skill-optimizer/`。每个 skill 以 `SKILL.md` 为入口；辅助脚本放在 `scripts/`，JavaScript 模块放在 `lib/`，示例或模板放在 `examples/` 或 `templates/`。测试在 `tests/` 中按领域组织。
 
 上游镜像可能引用旧平级路径，但本仓库不提供这些兼容路径；应使用 `skills/superpowers/`、`skills/caveman/`、`skills/addyosmani/`、`skills/darwin/`、`skills/bamhub/` 和 `skills/project/` 下的分类目录。Darwin 不含内置 hook、专用 agent、MCP server 或常驻后台进程；独立评委由调用它的运行时派生。
 
@@ -13,8 +13,10 @@
 仓库根目录没有统一的构建、Lint 或包管理工作流。请使用目标 skill 实际支持的命令：
 
 ```bash
-node --test tests/**/*.test.js                # 全部测试
+node --test tests/*/*.test.js                # JavaScript 测试
 node --test tests/project/*.test.mjs          # 项目级同步测试
+node --test tests/skill-layout.test.mjs       # skill 布局测试
+node --test scripts/manage-skills/tests/*.test.mjs # manage-skills 测试
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs check --all
 node skills/project/sync-upstream-skills/scripts/sync-skills.mjs apply --all
 node skills/superpowers/writing-skills/render-graphs.js skills/<skill-name> --combine
@@ -28,7 +30,7 @@ JavaScript 使用 ES 模块（`"type": "module"`）、两个空格缩进、单�
 
 ## 测试指南
 
-使用 Node 内置的 `node:test` 和 `node:assert/strict`。测试文件命名为 `*.test.js`，路径应与被测模块保持对应，并描述可观测行为，例如：`test('chooseLoginMode falls back to headless …', ...)`。每次修改脚本或库行为时，都要新增或更新针对性测试，并运行相应测试组；修改 CLI 或涉及多个 skill 时，还应运行集成测试。
+使用 Node 内置的 `node:test` 和 `node:assert/strict`。常规测试文件命名为 `*.test.js`；ESM 项目测试和 `scripts/manage-skills/tests/` 使用 `*.test.mjs`，路径应与被测模块保持对应，并描述可观测行为，例如：`test('chooseLoginMode falls back to headless …', ...)`。每次修改脚本或库行为时，都要新增或更新针对性测试，并运行相应测试组；修改 CLI 或涉及多个 skill 时，还应运行集成测试。
 
 ## 提交与拉取请求指南
 
