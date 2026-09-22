@@ -1,14 +1,22 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { scanTarget, error, linkFingerprint, sameIdentity, normalizeRelative } from './links.mjs';
+import { scanTarget, error, linkFingerprint, sameIdentity, normalizeRelative, validateCatalogSkills } from './links.mjs';
+
+const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 async function catalogIdentity(catalog) {
-  if (catalog.identity) return catalog.identity;
-  if (catalog.catalogIdentity) return catalog.catalogIdentity;
+  if (catalog.identity) return { ...catalog.identity, path: path.resolve(catalog.identity.path ?? catalog.identity.canonicalPath) };
+  if (catalog.catalogIdentity) return { ...catalog.catalogIdentity, path: path.resolve(catalog.catalogIdentity.path ?? catalog.catalogIdentity.canonicalPath) };
   const canonicalPath = await fs.realpath(catalog.root);
   const stat = await fs.stat(canonicalPath);
-  return { path: catalog.root, canonicalPath, dev: stat.dev, ino: stat.ino };
+  return { path: path.resolve(catalog.root), canonicalPath, dev: stat.dev, ino: stat.ino, ...(catalog.gitRemote ? { gitRemote: catalog.gitRemote } : {}), ...(catalog.gitCommit ? { gitCommit: catalog.gitCommit } : {}) };
+}
+
+function targetPath(target) {
+  const value = target?.path ?? target?.realPath ?? target?.canonicalPath;
+  if (typeof value !== 'string') throw error('TARGET_IDENTITY_INVALID', 'Target identity must include path, realPath, or canonicalPath');
+  return path.resolve(value);
 }
 
 function targetKey(target) {
@@ -32,8 +40,9 @@ function selectionKey(selection) {
   return `${selection.sourceRelative ?? selection.relativeSource}\0${selection.linkName ?? selection.name}`;
 }
 
-function validateSelections(selections, catalog) {
+function validateSelections(selections, catalog, validSkills) {
   const bySource = new Map((catalog.skills ?? []).map((skill) => [skill.relativeSource, skill]));
+  const validBySource = new Map(validSkills.map((skill) => [skill.relativeSource, skill]));
   const result = [];
   const aliases = new Set();
   const selectors = new Set();
@@ -41,7 +50,9 @@ function validateSelections(selections, catalog) {
     const sourceRelative = selection.sourceRelative ?? selection.relativeSource;
     const skill = bySource.get(sourceRelative);
     if (!skill || (selection.name && selection.name !== skill.name)) throw error('SELECTOR_NOT_FOUND', `Skill selector not found: ${sourceRelative}`);
+    if (!validBySource.has(sourceRelative)) throw error('INVALID_CATALOG_SKILL', `Catalog skill source is invalid: ${sourceRelative}`);
     const linkName = selection.linkName ?? skill.name;
+    if (!KEBAB_CASE.test(linkName)) throw error('INVALID_LINK_NAME', `Link name must be kebab-case: ${linkName}`);
     const key = selectionKey({ ...selection, sourceRelative, linkName });
     if (selectors.has(key)) throw error('DUPLICATE_SELECTOR', `Duplicate selector: ${key}`);
     selectors.add(key);
@@ -60,15 +71,17 @@ function validateSelections(selections, catalog) {
 
 async function manifestMatches(manifest, target, catalog) {
   if (!manifest) return true;
-  const targetMatches = sameIdentity(manifest.target, target);
+  const expectedTarget = { ...target, path: targetPath(target) };
+  const targetMatches = sameIdentity(manifest.target, expectedTarget, ['path', 'canonicalPath', 'dev', 'ino']);
   const expectedCatalog = await catalogIdentity(catalog);
-  const catalogMatches = !expectedCatalog || sameIdentity(manifest.catalog, expectedCatalog, ['canonicalPath', 'dev', 'ino']);
+  const catalogMatches = !expectedCatalog || sameIdentity(manifest.catalog, expectedCatalog, ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit']);
   if (!targetMatches) throw error('MANIFEST_TARGET_MISMATCH', 'Manifest target identity does not match target');
   if (!catalogMatches) throw error('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog');
   return true;
 }
 
 async function planFor({ target, catalog, desired, states, manifest, catalogIdentityValue }) {
+  const resolvedTarget = { ...target, path: targetPath(target) };
   const create = [];
   const remove = [];
   const keep = [];
@@ -78,9 +91,9 @@ async function planFor({ target, catalog, desired, states, manifest, catalogIden
   const desiredByName = new Map(desired.map((item) => [item.linkName, item]));
 
   for (const item of desired) {
-    const linkPath = path.join(target.path, item.linkName);
+    const linkPath = path.join(resolvedTarget.path, item.linkName);
     const current = byPath.get(linkPath);
-    const expectedRelativeTarget = normalizeRelative(path.relative(target.path, item.sourceDir));
+    const expectedRelativeTarget = normalizeRelative(path.relative(resolvedTarget.path, item.sourceDir));
     if (!current) {
       create.push({ linkPath, sourceDir: item.sourceDir, relativeTarget: expectedRelativeTarget, sourceIdentity: item.sourceIdentity });
     } else if (current.kind === 'managed-valid' && current.realTarget === await fs.realpath(item.sourceDir)) {
@@ -104,7 +117,7 @@ async function planFor({ target, catalog, desired, states, manifest, catalogIden
   }
 
   return {
-    target: { ...target },
+    target: resolvedTarget,
     catalog: catalogIdentityValue,
     desired,
     create: create.sort((a, b) => a.linkPath.localeCompare(b.linkPath)),
@@ -117,7 +130,8 @@ async function planFor({ target, catalog, desired, states, manifest, catalogIden
 
 export async function buildPlanSet({ targets, catalog, desiredSelections, options = {} } = {}) {
   if (!Array.isArray(targets)) throw error('TARGETS_REQUIRED', 'Targets must be supplied');
-  const desired = validateSelections(desiredInput(desiredSelections, options), catalog);
+  const validSkills = await validateCatalogSkills(catalog);
+  const desired = validateSelections(desiredInput(desiredSelections, options), catalog, validSkills);
   const plans = [];
   const protectedAll = [];
   const conflictsAll = [];

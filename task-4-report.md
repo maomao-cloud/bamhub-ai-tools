@@ -25,3 +25,17 @@ Implemented desired-state link classification and planning in:
 - `git diff --check` — clean.
 
 Transaction, interactive, and CLI layers were intentionally not implemented.
+
+## Reviewer follow-up
+
+- Manifest ownership now compares target `path`, `canonicalPath`, `dev`, and `ino`; catalog ownership compares `path`, `canonicalPath`, `dev`, `ino`, `gitRemote`, and `gitCommit`.
+- Plan-layer validation independently rejects non-kebab-case link names and invalid catalog skill inputs; source identity, regular `SKILL.md`, and catalog/source path boundaries are checked before a skill can be selected or managed.
+- Symlink `realpath` failures only classify `ENOENT`/`ENOTDIR` as broken/unavailable; other errors produce explicit `scan-error` diagnostics.
+- Plan target paths are resolved from `path`, `realPath`, or `canonicalPath` and emitted as absolute paths.
+- Added regression coverage for target/catalog identity mismatches, unmanaged broken links, regular directories, stable fingerprints, independent non-empty multi-target plans, and create-plan contents.
+
+## Reviewer follow-up verification
+
+- `node --test scripts/manage-skills/tests/links.test.mjs` — 15 passed.
+- `node --test scripts/manage-skills/tests/*.test.mjs` — 46 passed.
+- `git diff --check` — clean.

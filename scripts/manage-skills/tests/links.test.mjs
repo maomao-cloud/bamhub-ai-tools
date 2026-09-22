@@ -37,9 +37,9 @@ async function fixture() {
   const otherSource = await skill(catalogRoot, 'group/beta', 'beta');
   const targetIdentity = await identity(targetRoot);
   const catalogIdentity = await identity(catalogRoot, { gitCommit: 'abc' });
-  const catalog = { root: catalogRoot, skills: [
-    { name: 'alpha', relativeSource: 'group/alpha', sourceDir, sourceIdentity: await identity(sourceDir) },
-    { name: 'beta', relativeSource: 'group/beta', sourceDir: otherSource, sourceIdentity: await identity(otherSource) },
+  const catalog = { root: catalogRoot, identity: catalogIdentity, skills: [
+    { name: 'alpha', relativeSource: 'group/alpha', sourceDir, skillFile: path.join(sourceDir, 'SKILL.md'), sourceIdentity: await identity(sourceDir) },
+    { name: 'beta', relativeSource: 'group/beta', sourceDir: otherSource, skillFile: path.join(otherSource, 'SKILL.md'), sourceIdentity: await identity(otherSource) },
   ] };
   return { root, catalogRoot, targetRoot, targetIdentity, catalogIdentity, catalog };
 }
@@ -178,4 +178,83 @@ test('regular files and foreign links are protected and never removable', async 
   const result = await buildPlanSet({ targets: [{ ...f.targetIdentity, id: 'one' }], catalog: f.catalog, desiredSelections: [], options: { disableAll: true, manifestByTarget: new Map([[f.targetIdentity.canonicalPath, manifestFor({ targetIdentity: f.targetIdentity, catalogIdentity: f.catalogIdentity, links: [] })]]) } });
   assert.equal(result.plans[0].remove.length, 0);
   assert.equal(result.plans[0].protected.length, 2);
+});
+
+test('manifest ownership requires target and catalog path plus git identity fields', async () => {
+  const f = await fixture();
+  const links = [entryFor({ linkName: 'alpha', sourceRelative: 'group/alpha', relativeTarget: '../catalog/group/alpha', sourceIdentity: await identity(path.join(f.catalogRoot, 'group/alpha')) })];
+  const targetMismatch = manifestFor({ targetIdentity: { ...f.targetIdentity, path: `${f.targetIdentity.path}-alias` }, catalogIdentity: f.catalogIdentity, links });
+  const catalogMismatch = manifestFor({ targetIdentity: f.targetIdentity, catalogIdentity: { ...f.catalogIdentity, gitCommit: 'different' }, links });
+  const linkPath = path.join(f.targetRoot, 'alpha');
+  await fs.symlink(path.join(f.catalogRoot, 'group/alpha'), linkPath, 'dir');
+  assert.equal((await scanTarget({ targetIdentity: f.targetIdentity, catalog: f.catalog, manifest: targetMismatch }))[0].kind, 'unmanaged-symlink');
+  assert.equal((await scanTarget({ targetIdentity: f.targetIdentity, catalog: f.catalog, manifest: catalogMismatch }))[0].kind, 'unmanaged-symlink');
+});
+
+test('buildPlanSet validates kebab-case link names independently of selector resolution', async () => {
+  const f = await fixture();
+  await assert.rejects(() => buildPlanSet({ targets: [f.targetIdentity], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], linkName: 'bad_name', sourceRelative: 'group/alpha' }] }), { code: 'INVALID_LINK_NAME' });
+});
+
+test('invalid catalog sources cannot create or become managed', async () => {
+  const f = await fixture();
+  const invalid = { ...f.catalog.skills[0], sourceDir: path.join(f.root, 'outside'), skillFile: path.join(f.root, 'outside-skill.md') };
+  await fs.mkdir(invalid.sourceDir);
+  await fs.writeFile(invalid.skillFile, 'not a skill');
+  await assert.rejects(() => buildPlanSet({ targets: [f.targetIdentity], catalog: { ...f.catalog, skills: [invalid] }, desiredSelections: [invalid] }), { code: 'INVALID_CATALOG_SKILL' });
+});
+
+test('realpath permission or I/O errors remain scan diagnostics', async () => {
+  const f = await fixture();
+  const linkPath = path.join(f.targetRoot, 'alpha');
+  await fs.symlink(path.join(f.catalogRoot, 'group/alpha'), linkPath, 'dir');
+  const original = fs.realpath;
+  fs.realpath = async (candidate) => {
+    if (candidate === linkPath) Object.assign(new Error('I/O failure'), { code: 'EIO' });
+    if (candidate === linkPath) throw Object.assign(new Error('I/O failure'), { code: 'EIO' });
+    return original(candidate);
+  };
+  try {
+    const states = await scanTarget({ targetIdentity: f.targetIdentity, catalog: f.catalog });
+    assert.equal(states[0].kind, 'scan-error');
+    assert.match(states[0].reason, /I\/O|EIO/i);
+  } finally {
+    fs.realpath = original;
+  }
+});
+
+test('plan uses absolute target identity fallback and includes create content', async () => {
+  const f = await fixture();
+  const target = { canonicalPath: f.targetIdentity.canonicalPath, dev: f.targetIdentity.dev, ino: f.targetIdentity.ino, id: 'one' };
+  const result = await buildPlanSet({ targets: [target], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], sourceRelative: 'group/alpha', linkName: 'alpha' }] });
+  assert.equal(result.plans[0].create[0].linkPath, path.join(f.targetIdentity.canonicalPath, 'alpha'));
+  assert.equal(result.plans[0].create[0].sourceDir, f.catalog.skills[0].sourceDir);
+  assert.equal(result.plans[0].create[0].relativeTarget, path.relative(f.targetIdentity.canonicalPath, f.catalog.skills[0].sourceDir).split(path.sep).join('/'));
+});
+
+test('unmanaged broken links are protected and regular directories never become create targets', async () => {
+  const f = await fixture();
+  await fs.symlink('../missing', path.join(f.targetRoot, 'broken'));
+  await fs.mkdir(path.join(f.targetRoot, 'alpha'));
+  const result = await buildPlanSet({ targets: [f.targetIdentity], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], sourceRelative: 'group/alpha', linkName: 'alpha' }] });
+  assert.equal(result.plans[0].create.length, 0);
+  assert.ok(result.plans[0].protected.some((entry) => entry.kind === 'foreign-symlink'));
+  assert.ok(result.plans[0].protected.some((entry) => entry.kind === 'regular-directory'));
+});
+
+test('fingerprints are stable when object key order changes', async () => {
+  const f = await fixture();
+  const first = await buildPlanSet({ targets: [f.targetIdentity], catalog: f.catalog, desiredSelections: [] });
+  const reorderedCatalog = { ...f.catalog, skills: f.catalog.skills.map((skill) => ({ sourceIdentity: skill.sourceIdentity, sourceDir: skill.sourceDir, skillFile: skill.skillFile, relativeSource: skill.relativeSource, name: skill.name })) };
+  const second = await buildPlanSet({ targets: [f.targetIdentity], catalog: reorderedCatalog, desiredSelections: [] });
+  assert.equal(first.plans[0].fingerprint, second.plans[0].fingerprint);
+});
+
+test('multiple non-empty targets get independent plans', async () => {
+  const f = await fixture();
+  const second = path.join(f.root, 'second');
+  await fs.mkdir(second);
+  const secondIdentity = await identity(second);
+  const result = await buildPlanSet({ targets: [f.targetIdentity, secondIdentity], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], sourceRelative: 'group/alpha', linkName: 'alpha' }] });
+  assert.deepEqual(result.plans.map((plan) => plan.create.map((item) => item.linkPath)), [[path.join(f.targetRoot, 'alpha')], [path.join(second, 'alpha')]]);
 });
