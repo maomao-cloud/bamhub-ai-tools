@@ -55,3 +55,20 @@ passed
 ## Commit
 
 Commit: `fix(state): make lock release TOCTOU-safe`
+
+## Follow-up: Closed manifest schema
+
+- `validateManifest` now rejects unknown top-level fields; version 1 permits only `version`, `target`, `catalog`, and `links`.
+- Target, catalog, link, and `sourceIdentity` objects remain closed schemas; unknown nested identity/link fields are rejected rather than reserved for future metadata in v1.
+- Added valid-JSON rejection cases for unknown top-level and nested identity/link fields.
+- TDD evidence: the new suite failed before the validator change (unknown top-level field was accepted), then passed after implementation.
+
+## Follow-up verification
+
+```text
+node --test scripts/manage-skills/tests/state.test.mjs scripts/manage-skills/tests/catalog.test.mjs scripts/manage-skills/tests/targets.test.mjs
+31 tests passed, 0 failed
+
+git diff --check
+passed
+```

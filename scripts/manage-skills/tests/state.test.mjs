@@ -144,11 +144,16 @@ test('manifest schema rejects missing or invalid identities, links, versions, an
   const manifestPath = path.join(fixture.stateRoot, files.find((file) => file.endsWith('.json')));
   const invalid = [
     { ...fixture.manifest, version: 2 },
+    { ...fixture.manifest, futureField: true },
     { ...fixture.manifest, target: { ...fixture.manifest.target, canonicalPath: undefined } },
+    { ...fixture.manifest, target: { ...fixture.manifest.target, futureField: true } },
     { ...fixture.manifest, catalog: { ...fixture.manifest.catalog, ino: 1.5 } },
+    { ...fixture.manifest, catalog: { ...fixture.manifest.catalog, futureField: true } },
     { ...fixture.manifest, catalog: { ...fixture.manifest.catalog, gitCommit: 42 } },
     { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], createdAt: undefined }] },
+    { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], futureField: true }] },
     { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], sourceIdentity: { canonicalPath: '/x', dev: 1 } }] },
+    { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], sourceIdentity: { canonicalPath: '/x', dev: 1, futureField: true } }] },
   ];
   for (const manifest of invalid) {
     await fs.writeFile(manifestPath, JSON.stringify(manifest));

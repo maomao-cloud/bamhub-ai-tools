@@ -141,6 +141,9 @@ function validateManifest(value) {
   if (!isPlainObject(value) || value.version !== VERSION || !isPlainObject(value.target) || !isPlainObject(value.catalog) || !Array.isArray(value.links)) {
     throw stateError('MANIFEST_MALFORMED', 'manifest must contain version 1, target, catalog, and links');
   }
+  if (Object.keys(value).some((key) => !['version', 'target', 'catalog', 'links'].includes(key))) {
+    throw stateError('MANIFEST_MALFORMED', 'manifest contains an unknown field');
+  }
   validateManifestIdentity(value.target, 'manifest target');
   validateManifestIdentity(value.catalog, 'manifest catalog', { git: true });
   for (const link of value.links) {
