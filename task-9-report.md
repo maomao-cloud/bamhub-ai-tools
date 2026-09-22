@@ -25,3 +25,7 @@ missing target 在 apply 时先以 `missing: true` 的初始 target identity 参
 - Syntax/diff：`node --check scripts/manage-skills/lib/transaction.mjs`, `node --check scripts/manage-skills/tests/transaction.test.mjs`, `git diff --check` — passed。
 
 Full-suite existing Node module-type warnings are pre-existing and do not fail the suite.
+
+## 临时 probe 路径约定
+
+macOS 本机执行 `/tmp` probe 时，必须改用 canonical `/private/tmp`，避免 `/tmp` symlink 触发 target safety guard；Pod Linux 环境可使用 `/tmp`。

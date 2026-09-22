@@ -28,6 +28,8 @@ bamhub skill-layout tests: 11 passed, 0 failed
 
 ## 真实 Pod 探针
 
+macOS 本机执行临时 probe 时，使用 canonical `/private/tmp`（不要直接使用会经过 symlink 的 `/tmp`）；Pod Linux 环境可继续使用 `/tmp`。以下命令是在 Pod Linux 中执行，因此保留 `/tmp` 路径。
+
 Pod：`home-pc-loc/tools/ai-dsh`，container：`ai-dsh`。
 
 真实 checkout：`/work/bamhub-other/bamhub-ai-tools`，由 Pod 内现有 PVC 的 `/work` 子路径提供；工具通过显式 `--catalog` 使用该路径，不依赖固定 `/work/bamhub-ai-tools`。

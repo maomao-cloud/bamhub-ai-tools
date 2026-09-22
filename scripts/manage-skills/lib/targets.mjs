@@ -104,7 +104,8 @@ async function inspectTargetPath(targetPath) {
     }
   }
 
-  for (const ancestor of ancestors(parent)) {
+  const gitCheckPaths = targetStat ? ancestors(absolute) : ancestors(parent);
+  for (const ancestor of gitCheckPaths) {
     const gitMarker = await lstatIfExists(path.join(ancestor, '.git'));
     if (gitMarker) {
       throw targetError('UNSAFE_TARGET', `Target rejected: inside Git worktree (${ancestor})`, 'inside Git worktree');

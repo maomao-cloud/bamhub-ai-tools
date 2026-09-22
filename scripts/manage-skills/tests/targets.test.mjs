@@ -120,6 +120,7 @@ test('validateTarget rejects project targets, Git worktree targets, symlink ance
 
   const project = path.join(root, 'project');
   await fs.mkdir(path.join(project, '.git'), { recursive: true });
+  await assertTargetRejected({ targetPath: project, catalogRoot: catalog, mode: 'custom' }, 'git');
   await assertTargetRejected({ targetPath: path.join(project, 'global'), catalogRoot: catalog, mode: 'custom' }, 'git');
   await assertTargetRejected({ targetPath: path.join(project, '.agents', 'skills'), catalogRoot: catalog, mode: 'custom' }, 'project');
   await assertTargetRejected({ targetPath: path.join(project, '.claude', 'skills'), catalogRoot: catalog, mode: 'custom' }, 'project');

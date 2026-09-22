@@ -144,7 +144,10 @@ async function executeExplicit(options, streams = { stdout: process.stdout, stde
     if (!approved) throw cliError('CANCELLED', 'Apply cancelled', 2);
   }
   const result = await applyPlanSet(planSet, { state: {} });
-  for (let i = 0; i < targetReports.length; i += 1) targetReports[i].result = result.targets[i];
+  for (let i = 0; i < targetReports.length; i += 1) {
+    targetReports[i].result = result.targets[i];
+    if (result.targets[i]?.postApplyTarget) targetReports[i].target = publicTarget(result.targets[i].postApplyTarget);
+  }
   return reportFor({ ok: result.exitCode === 0, exitCode: result.exitCode, catalog: catalogReport, targets: targetReports });
 }
 
@@ -180,12 +183,15 @@ async function executeInteractive(options, streams) {
   if (result?.cancelled) throw cliError('CANCELLED', 'Interactive selection cancelled', 2);
   const applyResult = result?.applyResult;
   const targets = result?.targets ?? [];
-  const targetResults = targets.map((target, index) => ({
-    target: publicTarget(target),
-    entries: null,
-    plan: null,
-    result: applyResult?.targets?.[index] ?? null,
-  }));
+  const targetResults = targets.map((target, index) => {
+    const result = applyResult?.targets?.[index] ?? null;
+    return {
+      target: publicTarget(result?.postApplyTarget ?? target),
+      entries: null,
+      plan: null,
+      result,
+    };
+  });
   const exitCode = applyResult?.exitCode ?? 0;
   return reportFor({ ok: exitCode === 0, exitCode, catalog: { root: result.catalogRoot }, targets: targetResults });
 }

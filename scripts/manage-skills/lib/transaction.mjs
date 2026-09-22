@@ -303,6 +303,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       targetCreate.identity = createdTarget;
       targetCreate.status = 'done';
       manifestTargetIdentity = createdTarget;
+      result.postApplyTarget = { ...plan.target, ...createdTarget, exists: true, existed: true };
       snapshots.target = { ...createdTarget, created: true };
       await writeJournal(journal, record);
       mutationCount += 1;

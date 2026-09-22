@@ -114,7 +114,13 @@ test('apply --yes creates a missing final target without mutating during plan', 
   assert.equal(applied.code, 0, `${applied.stdout}\n${applied.stderr}`);
   assert.equal((await fs.stat(f.target)).isDirectory(), true);
   assert.equal((await fs.lstat(path.join(f.target, 'alpha'))).isSymbolicLink(), true);
-  assert.equal(JSON.parse(applied.stdout).targets[0].result.verified, true);
+  const report = JSON.parse(applied.stdout);
+  assert.equal(report.targets[0].target.exists, true);
+  assert.equal(report.targets[0].result.verified, true);
+  assert.equal(report.targets[0].result.postApplyTarget.exists, true);
+  assert.equal(report.targets[0].result.postApplyTarget.missing, false);
+  assert.equal(typeof report.targets[0].result.postApplyTarget.dev, 'number');
+  assert.equal(typeof report.targets[0].result.postApplyTarget.ino, 'number');
 });
 
 test('rejects target/runtime conflict and missing desired state', async () => {
