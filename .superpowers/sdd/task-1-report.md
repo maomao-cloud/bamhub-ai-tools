@@ -14,7 +14,7 @@ No target, state, transaction, or CLI code was added.
 1. Wrote the focused catalog tests first.
 2. Ran the focused test command before implementation; it failed with `ERR_MODULE_NOT_FOUND` because `catalog.mjs` did not exist.
 3. Implemented the minimum catalog module.
-4. Re-ran the focused tests; all 9 subtests passed.
+4. Re-ran the focused tests; all 10 subtests passed.
 
 ## Covered behavior
 
@@ -24,13 +24,39 @@ No target, state, transaction, or CLI code was added.
 - Strict `---` frontmatter with top-level single-line `name` and `description` values, including matching quote support.
 - Invalid names, missing fields, malformed/multiline frontmatter, duplicate names, and symlinked `SKILL.md` diagnostics.
 - Canonical source identity, explicit invalid reports for symlink source directories, and bundle resource symlink escape protection including nested symlink directories.
-- Structured selectors by unique name or exact `sourceRelative` (without the undocumented `source` alias), kebab-case `linkName` validation, and per-target link-name collision errors.
+- Structured selectors by unique name or exact `sourceRelative` (without the undocumented `source` alias), kebab-case `linkName` validation, per-target link-name collision errors, and rejection of an explicitly empty `sourceRelative`.
+- Cycle-safe bundle resource scanning for an internal symlink directory cycle and two aliases targeting the same directory, with one expected escape diagnostic and no duplicate traversal.
 
 ## Verification
 
 ```text
 node --test scripts/manage-skills/tests/catalog.test.mjs
-9 tests passed, 0 failed
+10 tests passed, 0 failed
+
+git diff --check
+passed
+```
+
+### Task 1 Minor TDD red/green evidence
+
+Added regression coverage before the selector implementation change for:
+
+- an actual internal symlink directory cycle with two aliases to the same directory, asserting bounded discovery, expected diagnostics, and no duplicate traversal;
+- an explicitly present but empty `sourceRelative`, asserting it reports a source-relative selector error instead of falling back to `name`.
+
+Red phase:
+
+```text
+node --test scripts/manage-skills/tests/catalog.test.mjs
+10 tests, 8 passed, 2 failed
+Failures: cycle test exposed the expected symlink diagnostics; empty sourceRelative incorrectly resolved by name.
+```
+
+Minimal implementation and green verification:
+
+```text
+node --test scripts/manage-skills/tests/catalog.test.mjs
+10 tests passed, 0 failed
 
 git diff --check
 passed

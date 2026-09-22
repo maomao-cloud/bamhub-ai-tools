@@ -246,8 +246,13 @@ export function resolveSelectors(selectors, catalog) {
       errors.push({ selector, reason: 'sourceRelative is required' });
       continue;
     }
+    const hasSourceRelative = Object.hasOwn(selector ?? {}, 'sourceRelative');
     const sourceRelative = selector?.sourceRelative;
     let skill;
+    if (hasSourceRelative && !sourceRelative) {
+      errors.push({ selector, reason: 'sourceRelative must not be empty' });
+      continue;
+    }
     if (sourceRelative) {
       skill = bySource.get(sourceRelative);
       if (!skill || (requestedName && skill.name !== requestedName)) {

@@ -213,6 +213,31 @@ test('discoverCatalog rejects multiline frontmatter and symlinked resources esca
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'nested-links' && /outside|escape|catalog/i.test(entry.reason)));
 });
 
+test('discoverCatalog terminates and reports one result for internal symlink cycles and aliases', async () => {
+  const root = await tempDir();
+  const sourceDir = await writeSkill(root, 'cyclic', { name: 'cyclic', description: 'Cyclic resources' });
+  const resourceDir = path.join(sourceDir, 'resources');
+  await fs.mkdir(resourceDir);
+  await fs.symlink(sourceDir, path.join(resourceDir, 'cycle'), 'dir');
+  await fs.symlink(resourceDir, path.join(sourceDir, 'alias-one'), 'dir');
+  await fs.symlink(resourceDir, path.join(sourceDir, 'alias-two'), 'dir');
+  const outside = path.join(path.dirname(root), 'cycle-outside.txt');
+  await fs.writeFile(outside, 'outside');
+  await fs.symlink(outside, path.join(resourceDir, 'escape.txt'));
+
+  const catalog = await Promise.race([
+    discoverCatalog({ catalogRoot: root }),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('catalog discovery timed out')), 500)),
+  ]);
+
+  assert.equal(catalog.skills.length, 0);
+  assert.equal(catalog.invalid.filter(({ relativeSource }) => relativeSource === 'cyclic').length, 1);
+  assert.equal(catalog.invalid.filter(({ relativeSource }) => relativeSource === 'cyclic/alias-one').length, 1);
+  assert.equal(catalog.invalid.filter(({ relativeSource }) => relativeSource === 'cyclic/alias-two').length, 1);
+  assert.equal(catalog.invalid.filter(({ relativeSource }) => relativeSource === 'cyclic/resources/cycle').length, 1);
+  assert.equal(catalog.invalid.filter(({ reason }) => reason === 'bundle resource symlink escapes catalog').length, 1);
+});
+
 test('discoverCatalog requires frontmatter quotes to match exactly without trailing content', async () => {
   const root = await tempDir();
   const cases = [
@@ -267,4 +292,9 @@ test('resolveSelectors resolves unique names and source-relative selectors, vali
   assert.equal(legacy.selections.length, 0);
   assert.equal(legacy.errors.length, 1);
   assert.match(legacy.errors[0].reason, /source.?relative/i);
+
+  const emptySourceRelative = resolveSelectors([{ name: 'unique', sourceRelative: '' }], catalog);
+  assert.equal(emptySourceRelative.selections.length, 0);
+  assert.equal(emptySourceRelative.errors.length, 1);
+  assert.match(emptySourceRelative.errors[0].reason, /source.?relative/i);
 });
