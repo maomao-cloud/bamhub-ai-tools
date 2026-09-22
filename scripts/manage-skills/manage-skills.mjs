@@ -4,7 +4,7 @@ import process from 'node:process';
 import { resolveCatalog, discoverCatalog, resolveSelectors } from './lib/catalog.mjs';
 import { detectRuntimeTargets, resolveTargetSelection, validateTarget } from './lib/targets.mjs';
 import { stateRootForTarget, loadManifest } from './lib/state.mjs';
-import { scanTarget } from './lib/links.mjs';
+import { scanTarget, validateCatalogSkills } from './lib/links.mjs';
 import { buildPlanSet } from './lib/plan.mjs';
 import { applyPlanSet } from './lib/transaction.mjs';
 import { confirmPlanSet, runInteractive } from './lib/interactive.mjs';
@@ -151,16 +151,36 @@ async function executeInteractive(options, streams) {
     input: streams.stdin,
     output: streams.stdout,
     isTTY: Boolean(streams.stdin?.isTTY && streams.stdout?.isTTY),
-    onPlanSet: async (planSet) => { await applyPlanSet(planSet, { state: {} }); },
+    onPlanSet: async (planSet) => applyPlanSet(planSet, { state: {} }),
   };
   if (!io.isTTY) throw cliError('INTERACTIVE_REQUIRED', 'Interactive mode requires a TTY');
   const result = await runInteractive({
     io,
     catalogResolver: () => resolveCatalog({ explicitPath: options.catalog, env: process.env, scriptFile: import.meta.url }),
     targetDetector: () => detectRuntimeTargets({ env: process.env }),
+    discoverCatalog,
+    scanValidSkills: ({ catalog }) => validateCatalogSkills(catalog),
+    prepareTargets: async ({ targets }) => targets.map((target) => ({
+      ...target,
+      stateRoot: stateRootForTarget({ runtimeId: target.id, env: process.env }),
+    })),
+    validateTargets: async ({ targets, catalogRoot }) => Promise.all(targets.map(async (target) => {
+      const identity = await validateTarget({ targetPath: target.path, catalogRoot, mode: target.id });
+      return { ...target, ...identity, stateRoot: target.stateRoot };
+    })),
+    scanState: ({ targets, catalog }) => manifestsFor(targets, catalog).then((manifests) => ({ manifests })),
   });
   if (result?.cancelled) throw cliError('CANCELLED', 'Interactive selection cancelled', 2);
-  return reportFor({ ok: true, exitCode: 0, catalog: { root: result.catalogRoot }, targets: result.targets?.map((target) => ({ target: publicTarget(target), entries: null, plan: null, result: null })) ?? [] });
+  const applyResult = result?.applyResult;
+  const targets = result?.targets ?? [];
+  const targetResults = targets.map((target, index) => ({
+    target: publicTarget(target),
+    entries: null,
+    plan: null,
+    result: applyResult?.targets?.[index] ?? null,
+  }));
+  const exitCode = applyResult?.exitCode ?? 0;
+  return reportFor({ ok: exitCode === 0, exitCode, catalog: { root: result.catalogRoot }, targets: targetResults });
 }
 
 export async function main(argv = process.argv.slice(2), streams = process) {
@@ -170,6 +190,9 @@ export async function main(argv = process.argv.slice(2), streams = process) {
     const tty = Boolean(streams.stdin?.isTTY && streams.stdout?.isTTY);
     const needsInteractiveSelection = options.command === 'interactive'
       || (options.command === 'apply' && !options.enables.length && !options['disable-all'] && !options['dry-run'] && tty);
+    if (options.json && tty && (options.command === 'interactive' || (options.command === 'apply' && !options.yes))) {
+      throw cliError('CONFIRMATION_REQUIRED', '--json in TTY requires --yes or non-interactive mode');
+    }
     const report = needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
     writeOutput(report, { json: Boolean(options.json) }, streams);
     return report.exitCode;

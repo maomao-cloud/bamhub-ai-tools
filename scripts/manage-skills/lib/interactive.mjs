@@ -231,11 +231,12 @@ export async function confirmPlanSet(planSet, io = {}) {
   finally { session.cleanup(); }
 }
 
-export async function runInteractive({ catalogResolver, targetDetector, discoverCatalog, scanValidSkills, io = {}, buildPlanSet: injectedBuild, scanState: injectedScan } = {}) {
+export async function runInteractive({ catalogResolver, targetDetector, discoverCatalog, scanValidSkills, prepareTargets, validateTargets, io = {}, buildPlanSet: injectedBuild, scanState: injectedScan } = {}) {
   catalogResolver ??= io.catalogResolver;
   targetDetector ??= io.targetDetector;
   discoverCatalog ??= io.discoverCatalog ?? defaultDiscoverCatalog;
   scanValidSkills ??= io.scanValidSkills ?? (async ({ catalog }) => catalog?.skills ?? []);
+  prepareTargets ??= io.prepareTargets;
   const build = injectedBuild ?? io.buildPlanSet ?? defaultBuildPlanSet;
   const scanState = injectedScan ?? io.scanState;
   const session = createSession(io);
@@ -248,10 +249,14 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
     if (!(await session.confirm('Use this catalog? [y/N]'))) return { cancelled: true };
     const catalog = await discoverCatalog({ catalogRoot: resolved?.root ?? resolved?.catalog?.root ?? resolved?.catalogRoot, resolution: resolved });
     const skills = await scanValidSkills({ catalog, catalogRoot: catalog?.root ?? catalogRoot });
-    const targetChoice = await session.select('Select global runtime targets', runtimes);
+    const preparedRuntimes = typeof prepareTargets === 'function'
+      ? await prepareTargets({ targets: runtimes, catalog, catalogRoot: catalog?.root ?? catalogRoot })
+      : runtimes;
+    const targetChoice = await session.select('Select global runtime targets', preparedRuntimes);
     if (targetChoice.disableAll) return { cancelled: true };
-    const targets = targetChoice.indexes.map((index) => runtimes[index]);
+    let targets = targetChoice.indexes.map((index) => preparedRuntimes[index]);
     if (!targets.length) return { cancelled: true };
+    if (typeof validateTargets === 'function') targets = await validateTargets({ targets, catalog, catalogRoot: catalog?.root ?? catalogRoot });
     const state = typeof scanState === 'function' ? await scanState({ targets, catalog, skills }) : null;
     const skillChoice = await session.select('Select desired skills', skills);
     const desiredSelections = skillChoice.indexes.map((index) => skills[index]);
@@ -261,8 +266,8 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
     const planSet = await build({ targets, catalog, desiredSelections, options: { ...options, ...(disableAll ? { disableAll: true } : {}) } });
     renderPlanSet(planSet, io);
     if (!(await session.confirm('Approve final PlanSet? [y/N]'))) return { cancelled: true };
-    if (typeof io.onPlanSet === 'function') await io.onPlanSet(planSet);
-    return { catalogRoot: catalogRoot ?? catalog?.root, targets, desiredSelections, disableAll };
+    const applyResult = typeof io.onPlanSet === 'function' ? await io.onPlanSet(planSet) : undefined;
+    return { catalogRoot: catalogRoot ?? catalog?.root, targets, desiredSelections, disableAll, applyResult };
   } catch (error) { if (error === CANCEL) return { cancelled: true }; throw error; }
   finally { session.cleanup(); }
 }

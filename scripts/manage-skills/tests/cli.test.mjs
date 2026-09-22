@@ -26,6 +26,10 @@ async function fixture() {
   return { dir, catalog, target, home, env: { ...process.env, HOME: home, DSH_HOME: path.join(home, 'dsh'), XDG_STATE_HOME: path.join(dir, 'state') } };
 }
 
+function parsePrettyReport(output) {
+  return JSON.parse(output.slice(output.indexOf('{\n  "ok"')));
+}
+
 function run(args, env = {}, command = process.execPath) {
   return new Promise((resolve) => {
     const child = spawn(command, command === process.execPath ? [entry, ...args] : args, { cwd: root, env: { ...process.env, ...env } });
@@ -49,7 +53,10 @@ async function runTTY(args, env, answer) {
   for (const [key, value] of Object.entries(env)) { previous[key] = process.env[key]; process.env[key] = value; }
   try {
     const result = main(args, { stdin, stdout, stderr });
-    stdin.end(answer);
+    if (Array.isArray(answer)) {
+      for (const chunk of answer) await new Promise((resolve) => setTimeout(() => { stdin.write(chunk); resolve(); }, 10));
+      stdin.end();
+    } else stdin.end(answer);
     return { code: await result, stdout: output, stderr: errors };
   } finally {
     for (const key of Object.keys(env)) {
@@ -122,6 +129,47 @@ test('interactive TTY apply confirms enable plan before transaction', async () =
   const rejected = await runTTY(['apply', '--catalog', f.catalog, '--target', rejectedTarget, '--disable-all'], f.env, 'n');
   assert.equal(rejected.code, 2, `${rejected.stdout}\n${rejected.stderr}`);
   await assert.rejects(fs.lstat(path.join(rejectedTarget, 'alpha')), { code: 'ENOENT' });
+});
+
+test('TTY --json rejects confirmation without mixing interactive preview into stdout', async () => {
+  const f = await fixture();
+  const result = await runTTY(['apply', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha', '--json'], f.env, 'y');
+  assert.equal(result.code, 2);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.ok, false);
+  assert.equal(report.exitCode, 2);
+  assert.equal(report.errors[0].code, 'CONFIRMATION_REQUIRED');
+  assert.doesNotMatch(result.stdout, /PlanSet preview/);
+});
+
+test('default interactive maps transaction failure to exit one and retains target results', async () => {
+  const f = await fixture();
+  const dshSkills = path.join(f.env.DSH_HOME, 'skills');
+  await fs.mkdir(dshSkills);
+  await fs.writeFile(path.join(dshSkills, 'alpha'), 'protected');
+  const result = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', 'a', '\r', 'y']);
+  assert.equal(result.code, 1, `${result.stdout}\n${result.stderr}`);
+  const report = parsePrettyReport(result.stdout);
+  assert.equal(report.ok, false);
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets.length, 1);
+  assert.ok(report.targets[0].result.failed.length > 0);
+});
+
+test('default interactive loads manifest ownership before applying desired state', async () => {
+  const f = await fixture();
+  const dshSkills = path.join(f.env.DSH_HOME, 'skills');
+  await fs.mkdir(dshSkills);
+  const applied = await run(['apply', '--catalog', f.catalog, '--runtime', 'dsh', '--enable', 'alpha', '--yes'], f.env);
+  assert.equal(applied.code, 0, `${applied.stdout}\n${applied.stderr}`);
+  assert.equal((await fs.lstat(path.join(dshSkills, 'alpha'))).isSymbolicLink(), true);
+
+  const result = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', 'n', '\r', 'y']);
+  assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+  const report = parsePrettyReport(result.stdout);
+  assert.equal(report.targets.length, 1);
+  assert.ok(report.targets[0].result.applied.includes(path.join(dshSkills, 'alpha')));
+  await assert.rejects(fs.lstat(path.join(dshSkills, 'alpha')), { code: 'ENOENT' });
 });
 
 test('dry-run requires exactly one desired state', async () => {
