@@ -1,0 +1,12 @@
+[
+  {
+    "id": "keep-document-stable-for-wording-only-change",
+    "prompt": "请同步 modules/payments 的 CLAUDE.md；本次只有变量重命名和一处注释改写，核心入口与职责边界没有变化。",
+    "expected": "应先读取模块事实并判定保持不变，明确说明这不是必须或建议更新，不能为了试跑扩写文档。"
+  },
+  {
+    "id": "update-document-for-main-flow-change",
+    "prompt": "请同步 modules/import 的 CLAUDE.md：新的正式入口将 CSV 导入改为“校验→异步编排→归档→查询结果”，原有文档仍写同步导入。",
+    "expected": "应识别主链路和正式入口已变化，按入口到编排再到输出阅读事实，并更新稳定定位、流程与职责边界。"
+  }
+]

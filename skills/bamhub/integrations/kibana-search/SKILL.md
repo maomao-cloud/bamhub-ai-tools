@@ -1,55 +1,55 @@
 ---
 name: kibana-search
-description: Query Kibana logs from repository-local config using shared auth profiles.
+description: 使用共享认证配置文件，从仓库本地配置中查询 Kibana 日志时使用
 ---
 
-# Kibana Search
+# Kibana 日志查询
 
-## Overview
+## 概述
 
-Use this skill when Claude Code or hermes-agent needs to query Kibana logs from repository-local environment config and return raw log entries to the caller. It uses shared-auth profiles for credentials and keeps runtime config under this repository.
+当 Claude Code 或 hermes-agent 需要从仓库本地环境配置查询 Kibana 日志，并向调用方返回原始日志条目时使用此 skill。它使用 shared-auth 配置文件管理凭证，并将运行时配置保留在当前仓库内。
 
-## When to Use
+## 何时使用
 
-- Investigating application errors, traces, warnings, or production behavior in Kibana logs.
-- Searching by service, level, keyword, or trace ID from a configured environment.
-- Returning raw logs for another agent or user to inspect.
+- 调查 Kibana 日志中的应用错误、调用链、告警或生产行为。
+- 从已配置环境中按服务、级别、关键词或 trace ID 搜索。
+- 向其他代理或用户返回原始日志供其检查。
 
-Do not use this skill to summarize away log evidence. Return the raw logs produced by the CLI, then add interpretation separately only if asked.
+不要使用此 skill 省略日志证据而只做总结。应返回 CLI 生成的原始日志；仅在被要求时，才额外给出解读。
 
-## Runtime Files
+## 运行时文件
 
-- Config: `skills/bamhub/integrations/kibana-search/.local/config.json`
-- Cache: `skills/bamhub/integrations/kibana-search/.local/cache.json`
-- Example config: `skills/bamhub/integrations/kibana-search/templates/config.example.json`
-- CLI: `skills/bamhub/integrations/kibana-search/scripts/kibana-search`
-- Auth config: `skills/bamhub/integrations/shared-auth/.local/auth-config.json`
-- Auth credentials: `skills/bamhub/integrations/shared-auth/.local/credentials.json`
+- 配置：`skills/bamhub/integrations/kibana-search/.local/config.json`
+- 缓存：`skills/bamhub/integrations/kibana-search/.local/cache.json`
+- 配置示例：`skills/bamhub/integrations/kibana-search/templates/config.example.json`
+- CLI：`skills/bamhub/integrations/kibana-search/scripts/kibana-search`
+- 认证配置：`skills/bamhub/integrations/shared-auth/.local/auth-config.json`
+- 认证凭证：`skills/bamhub/integrations/shared-auth/.local/credentials.json`
 
-The Kibana config references a shared-auth profile at `environments.<env>.auth.profile`. That profile must exist in `skills/bamhub/integrations/shared-auth/.local/auth-config.json`.
+Kibana 配置通过 `environments.<env>.auth.profile` 引用 shared-auth 配置文件。该配置文件必须存在于 `skills/bamhub/integrations/shared-auth/.local/auth-config.json` 中。
 
-## Commands
+## 命令
 
-### Initialize local config
+### 初始化本地配置
 
-Copy and edit the example config before first use:
+首次使用前，复制并编辑配置示例：
 
 ```bash
 cp skills/bamhub/integrations/kibana-search/templates/config.example.json skills/bamhub/integrations/kibana-search/.local/config.json
 cp skills/bamhub/integrations/shared-auth/templates/auth-config.example.json skills/bamhub/integrations/shared-auth/.local/auth-config.json
 ```
 
-Set `KIBANA_SEARCH_CONFIG` or `SHARED_AUTH_CONFIG` only when intentionally using a non-default repository-local path.
+仅当有意使用非默认的仓库本地路径时，才设置 `KIBANA_SEARCH_CONFIG` 或 `SHARED_AUTH_CONFIG`。
 
-### Search logs
+### 搜索日志
 
-Run from the repository root:
+从仓库根目录运行：
 
 ```bash
 bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs --env <environment>
 ```
 
-Common filters:
+常用筛选条件：
 
 ```bash
 bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs --env <environment> --service <service-name>
@@ -59,40 +59,40 @@ bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs --env <
 bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs --env <environment> --json
 ```
 
-Return the raw logs from stdout. With `--json`, preserve the JSON payload including `logs`, `query`, `backend`, and `dataViewId`.
+返回 stdout 中的原始日志。使用 `--json` 时，应保留包含 `logs`、`query`、`backend` 和 `dataViewId` 的 JSON 载荷。
 
-### Refresh cache
+### 刷新缓存
 
-Data view metadata is cached in `skills/bamhub/integrations/kibana-search/.local/cache.json`. To force a refresh, remove the cache file and run the logs command again:
+数据视图元数据缓存于 `skills/bamhub/integrations/kibana-search/.local/cache.json`。如需强制刷新，删除缓存文件后重新执行日志命令：
 
 ```bash
 rm skills/bamhub/integrations/kibana-search/.local/cache.json
 bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs --env <environment>
 ```
 
-## Auth Missing or Expired
+## 认证缺失或已过期
 
-If the CLI reports `AUTH_MISSING_CREDENTIAL` or `AUTH_EXPIRED`, login with the shared-auth profile named in the error or in the environment config:
+若 CLI 报告 `AUTH_MISSING_CREDENTIAL` 或 `AUTH_EXPIRED`，使用错误信息或环境配置中指定的 shared-auth 配置文件登录：
 
 ```bash
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name>
 ```
 
-Then rerun the Kibana logs command. Keep credentials in the repository-local shared-auth runtime files.
+随后重新运行 Kibana 日志命令。将凭证保留在仓库本地的 shared-auth 运行时文件中。
 
-## Headless Systems
+## 无头系统
 
-For hermes-agent, remote terminals, CI-like shells, or any environment without GUI browser support, use shared-auth headless or import mode:
+对于 hermes-agent、远程终端、类 CI shell 或任何不支持 GUI 浏览器的环境，使用 shared-auth 的无头或导入模式：
 
 ```bash
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name> --mode headless
 bash skills/bamhub/integrations/shared-auth/scripts/auth login --profile <profile-name> --mode import
 ```
 
-After the shared-auth flow stores credentials in `skills/bamhub/integrations/shared-auth/.local/credentials.json`, run `bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs` again.
+shared-auth 流程将凭证保存到 `skills/bamhub/integrations/shared-auth/.local/credentials.json` 后，再次执行 `bash skills/bamhub/integrations/kibana-search/scripts/kibana-search logs`。
 
-## Common Mistakes
+## 常见错误
 
-- Searching before the shared-auth profile has credentials. Run `skills/bamhub/integrations/shared-auth/scripts/auth login` first.
-- Editing global Claude config for Kibana auth. Keep Kibana config and credentials repository-local.
-- Returning only a summary. Preserve and return raw logs so the caller can verify the evidence.
+- 在 shared-auth 配置文件拥有凭证前就搜索。应先运行 `skills/bamhub/integrations/shared-auth/scripts/auth login`。
+- 为 Kibana 认证编辑全局 Claude 配置。应将 Kibana 配置和凭证保留在仓库本地。
+- 只返回总结。应保留并返回原始日志，以便调用方验证证据。

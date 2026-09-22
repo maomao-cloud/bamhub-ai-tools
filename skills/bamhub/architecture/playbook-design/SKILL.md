@@ -1,101 +1,101 @@
 ---
 name: playbook-design
-description: Use when a new or evolving requirement needs project-aware design discovery before brainstorming because existing rules, code, prior decisions, module boundaries, or delivery risks may otherwise be missed or repeatedly re-litigated.
+description: 当新增或演进中的需求在进入头脑风暴前需要结合项目上下文进行设计调研，以免遗漏或反复争论既有规则、代码、历史决策、模块边界或交付风险时使用
 ---
 
-# Playbook Design
+# 项目化设计调研
 
-Build a verified design brief before design discussion. The brief turns existing project knowledge into explicit inputs, so the user decides business trade-offs rather than re-answering questions that rules, code, or prior decisions already answer.
+在设计讨论前形成经过验证的设计简报。该简报将现有项目知识转化为明确输入，使用户专注于业务取舍，而无需重复回答规则、代码或历史决策已经给出答案的问题。
 
-## Scope and Ownership
+## 范围与职责
 
-Use this skill for new features, cross-module work, unclear boundaries, or requirements that repeatedly drift between spec and plan. Do not use it for a small change with a complete, current plan.
+将此 skill 用于新功能、跨模块工作、边界不清晰，或在规格与计划之间反复漂移的需求。对于已有完整且有效实施计划的小改动，不要使用此 skill。
 
-This skill owns evidence gathering, risk-based analysis, and the design brief. It does not replace these skills:
+此 skill 负责证据收集、基于风险的分析和设计简报；它不替代以下 skill：
 
-- **REQUIRED NEXT SKILL:** Use `superpowers:brainstorming` to compare options, obtain design approval, and create the formal spec.
-- **REQUIRED AFTER SPEC:** Use `superpowers:writing-plans` to create the implementation plan.
-- Use `rule-refine` only when a verified, repeatable conclusion merits a formal project rule.
+- **后续必须使用的 skill：**使用 `superpowers:brainstorming` 比较方案、取得设计确认并创建正式规格。
+- **规格确认后必须使用的 skill：**使用 `superpowers:writing-plans` 创建实施计划。
+- 仅当经过验证、可重复的结论值得成为正式项目规则时，才使用 `rule-refine`。
 
-## Select the Depth
+## 选择调研深度
 
-| Mode | Use when | Required work |
+| 模式 | 适用时机 | 必需工作 |
 | --- | --- | --- |
-| Lite | The change is local and the boundary is already clear. | Read applicable instructions and verify the closest existing capability. |
-| Standard | A new feature, module boundary, or meaningful acceptance risk exists. | Add convention, code-fact, boundary, and validation views. |
-| Deep | Cross-module calls, data changes, permissions, batch work, external integration, or irreversible decisions are involved. | Add only the risk views relevant to the change. |
+| 轻量 | 改动范围局部，且边界已经清晰。 | 阅读适用指引，并验证最接近的现有能力。 |
+| 标准 | 存在新功能、模块边界或实质性验收风险。 | 增加约定、代码事实、边界和验证视角。 |
+| 深度 | 涉及跨模块调用、数据变更、权限、批处理、外部集成或不可逆决策。 | 仅增加与改动相关的风险视角。 |
 
-Do not choose Deep merely because the task sounds important. Do not choose Lite when the requested change would alter a public contract, state transition, or cross-module dependency.
+不要仅因任务听起来重要就选择深度模式。当请求的改动会改变公共契约、状态转换或跨模块依赖时，不要选择轻量模式。
 
-## Build the Project Baseline
+## 建立项目基线
 
-Read the smallest set of real evidence needed, in this order:
+按以下顺序，读取满足需求的最小真实证据集：
 
-1. The user request and explicit constraints.
-2. Applicable `AGENTS.md`, `CLAUDE.md`, or repository rule files that actually exist.
-3. The closest module instructions and relevant historical spec or plan.
-4. The real entry points, core services, contracts, and tests on the affected path.
+1. 用户请求与明确约束。
+2. 实际存在且适用的 `AGENTS.md`、`CLAUDE.md` 或仓库规则文件。
+3. 最接近的模块指引以及相关的历史规格或计划。
+4. 受影响路径上的真实入口点、核心服务、契约与测试。
 
-Treat missing files as missing evidence, not as implied rules. Mark every conclusion as **verified**, **inferred**, or **open**. Use code facts to flag stale documentation, but do not let current behavior override an applicable rule or an approved target design.
+将缺失文件视为缺失证据，而不是隐含规则。将每项结论标记为**已验证**、**推断**或**待确认**。用代码事实标记过期文档，但不要让当前行为推翻适用规则或已批准的目标设计。
 
-For Standard and Deep work, read [evidence-and-risk.md](references/evidence-and-risk.md) before assigning views.
+对于标准和深度工作，在分配分析视角前阅读 [evidence-and-risk.md](references/evidence-and-risk.md)。
 
-## Run Risk-Based Views
+## 执行基于风险的分析视角
 
-Use the selected views to answer different questions, not to repeat the same summary:
+利用所选视角回答不同问题，而不是重复同一份总结：
 
-- **Code facts:** What already exists and where does the change belong?
-- **Conventions:** Which durable constraints already decide the implementation shape?
-- **Boundary and integration:** Which contracts, ownership boundaries, state changes, or dependencies can drift?
-- **Validation:** What acceptance conditions, edge cases, and evidence must the later plan preserve?
+- **代码事实：**已有能力是什么，改动应落在何处？
+- **约定：**哪些长期约束已决定实现形态？
+- **边界与集成：**哪些契约、所有权边界、状态变化或依赖可能发生漂移？
+- **验证：**后续计划必须保留哪些验收条件、边界情况和证据？
 
-When independent read-only investigations would materially improve confidence, dispatch focused subagents with a bounded evidence scope. If subagents are unavailable, run the same views sequentially and say so; never present sequential reasoning as parallel verification.
+若独立的只读调查能实质提高置信度，则派遣证据范围受限的专注子代理。若子代理不可用，则顺序执行相同视角并说明这一点；不要把顺序推理表述为并行验证。
 
-Resolve factual disagreement by inspecting the source of truth. Resolve intended behavior with this precedence: explicit current user direction, approved target specification, applicable project rules, then general practice. Use verified current code to identify compatibility and migration constraints; do not use it to reverse an approved change. Ask the user only when the unresolved choice changes business value, scope, acceptance criteria, or an irreversible architectural commitment.
+通过检查事实来源解决事实分歧。按以下优先级解决预期行为：当前用户的明确指示、已批准的目标规格、适用的项目规则、通用实践。用已验证的当前代码识别兼容性和迁移约束；不要用它推翻已批准的变更。仅当未解决的选择会改变业务价值、范围、验收标准或不可逆的架构承诺时，才询问用户。
 
-## Produce the Design Brief
+## 产出设计简报
 
-Use this structure. Keep it concise and link every material constraint to evidence.
+采用以下结构。保持简洁，并为每项实质性约束关联证据。
 
 ```text
-Project baseline
-- Sources read:
-- Relevant prior decisions:
+项目基线
+- 已阅读的来源：
+- 相关历史决策：
 
-Verified facts
-- Existing capability and extension points:
-- Applicable constraints:
+已验证事实
+- 现有能力与扩展点：
+- 适用约束：
 
-Risk view
-- Boundaries and dependencies:
-- Validation concerns:
+风险视角
+- 边界与依赖：
+- 验证关注点：
 
-Recommended design input
-- Include:
-- Explicitly exclude:
-- Constraints that the formal spec must state:
+推荐的设计输入
+- 应纳入：
+- 明确排除：
+- 正式规格必须声明的约束：
 
-Only user decisions still needed
-- Decision, options, recommendation, and impact:
+仍需要用户决定的事项
+- 决策、选项、建议和影响：
 
-Design lock for planning
-- Plan must preserve:
-- Plan must not introduce:
-- Evidence required to verify:
+用于规划的设计锁定项
+- 计划必须保留：
+- 计划不得引入：
+- 验证所需证据：
 ```
 
-Do not turn the brief into a formal spec or an implementation plan. Avoid speculative APIs, fields, services, and technology choices that are not supported by evidence.
+不要将简报写成正式规格或实施计划。避免提出没有证据支持的推测性 API、字段、服务和技术选型。
 
-## Handoff and Learning
+## 交接与沉淀
 
-Hand the brief to `superpowers:brainstorming`. It should use verified constraints as defaults and ask only the remaining decision questions. After the formal spec is approved, pass the **Design lock for planning** section to `superpowers:writing-plans`; return to the spec if a proposed plan expands it.
+将简报交给 `superpowers:brainstorming`。它应将已验证的约束作为默认输入，仅询问剩余的决策问题。正式规格获批后，将**用于规划的设计锁定项**交给 `superpowers:writing-plans`；若拟议计划扩大了该范围，则返回规格重新处理。
 
-Do not automatically edit long-lived project instructions. Send a conclusion to `rule-refine` only when it has recurred, is evidence-backed, and would guide future decisions across tasks. For long-running work that needs durable process context, read [optional-playbook.md](references/optional-playbook.md).
+不要自动修改长期有效的项目指引。只有当结论已重复出现、有证据支持，并能指导跨任务的未来决策时，才将它交给 `rule-refine`。对于需要长期流程上下文的工作，阅读 [optional-playbook.md](references/optional-playbook.md)。
 
-## Common Mistakes
+## 常见错误
 
-- Asking the user for an answer already present in an applicable rule, current code, or approved decision.
-- Naming a capability as existing before reading its entry point or contract.
-- Running every analysis view for a local, low-risk change.
-- Allowing a plan to add a filter, endpoint, model, or asynchronous flow absent from the approved spec.
-- Treating a single task’s implementation detail as a permanent project convention.
+- 向用户询问适用规则、当前代码或已批准决策中已经给出答案的问题。
+- 在阅读入口点或契约之前，就认定某项能力已存在。
+- 为局部、低风险改动运行全部分析视角。
+- 允许计划添加已批准规格中没有的筛选条件、端点、模型或异步流程。
+- 将单个任务的实现细节视为永久项目约定。

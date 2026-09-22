@@ -1,72 +1,69 @@
 ---
 name: ai-capability
-description: Use when an agent needs to discover or invoke a remote AI capability service, inspect capability names and descriptions, load one capability's input schema, or execute a provider-backed capability through the repository CLI.
+description: 当代理需要发现或调用远程 AI 能力服务、查看能力名称和说明、加载某项能力的输入模式，或通过仓库 CLI 执行由提供方支持的能力时使用
 ---
 
-# Generic AI Capability
+# 通用 AI 能力
 
-Use this skill as the stable Agent-facing interface for remote AI capabilities. The first supported provider is Bamboo's open capability API; the workflow is provider-neutral and must not expose TaskBot internals.
+将此 skill 作为面向代理的稳定接口来使用远程 AI 能力。首个支持的提供方是 Bamboo 开放能力 API；工作流与提供方无关，且不得暴露 TaskBot 内部细节。
 
-## Quick reference
+## 快速参考
 
 ```bash
-# Discover lightweight capability metadata
+# 发现轻量级能力元数据
 bash skills/bamhub/integrations/ai-capability/scripts/ai-capability \
   capabilities --keyword '日志' --json
 
-# Load schema only after choosing one code
+# 仅在选定一个代码后加载模式
 bash skills/bamhub/integrations/ai-capability/scripts/ai-capability \
   describe --code <capability-code> --json
 
-# Invoke with arguments validated against the returned inputSchema
+# 使用通过返回的 inputSchema 校验的参数调用
 bash skills/bamhub/integrations/ai-capability/scripts/ai-capability \
   invoke --code <capability-code> --arguments '<json>' --json
 ```
 
-The local commands map to the current remote API as follows:
+本地命令与当前远程 API 的映射如下：
 
-| Local command | Remote request | Purpose |
+| 本地命令 | 远程请求 | 用途 |
 |---|---|---|
-| `capabilities` | `POST {baseUrl}/ai/capability/page`, `detail=false` | List/filter `code`, `name`, `description` |
-| `describe` | Same `page` endpoint with `codes=[code]`, `detail=true` | Load one `inputSchema` |
-| `invoke` | `POST {baseUrl}/ai/capability/invoke` | Execute the selected capability |
+| `capabilities` | `POST {baseUrl}/ai/capability/page`，`detail=false` | 列出／筛选 `code`、`name`、`description` |
+| `describe` | 同一 `page` 端点，使用 `codes=[code]`、`detail=true` | 加载一个 `inputSchema` |
+| `invoke` | `POST {baseUrl}/ai/capability/invoke` | 执行选定的能力 |
 
-There is no remote `/search` or `/detail/{code}` endpoint.
+远程端不存在 `/search` 或 `/detail/{code}` 端点。
 
-## Configuration and authentication
+## 配置与认证
 
-Copy `templates/config.example.json` to `.local/config.json` and set a service `baseUrl`. Keep the API key outside Git, preferably in the environment variable named by `apiKeyEnv`:
+将 `templates/config.example.json` 复制为 `.local/config.json`，并设置服务 `baseUrl`。API 密钥必须存放在 Git 之外，推荐放在 `apiKeyEnv` 指定的环境变量中：
 
 ```bash
 export AI_CAPABILITY_API_KEY='provided-out-of-band'
 ```
 
-The default local configuration is alongside this Skill in `.local/config.json`, so the
-commands also work when the Skill is invoked through a symbolic link from another repository.
-On macOS, `apiKeyKeychainService` can keep the key in Keychain; an explicitly exported
-`AI_CAPABILITY_API_KEY` takes precedence.
+默认本地配置位于此 skill 同级的 `.local/config.json`，因此通过其他仓库中的符号链接调用该 skill 时，命令同样可用。在 macOS 上，`apiKeyKeychainService` 可以将密钥保存在钥匙串中；显式导出的 `AI_CAPABILITY_API_KEY` 优先级更高。
 
-The shared client sends the configured key on **every** page-list, page-detail, and invoke request, using `X-API-KEY` by default. Do not put the key in `arguments`, URLs, committed files, output, or logs. A missing or rejected key is a stop condition; do not retry anonymously or guess another key.
+共享客户端会在**每次**列表分页、详情分页和调用请求中发送配置的密钥，默认使用 `X-API-KEY`。不要将密钥放入 `arguments`、URL、已提交文件、输出或日志中。密钥缺失或被拒绝即为停止条件；不要匿名重试或猜测其他密钥。
 
-## Required workflow
+## 必需工作流
 
-1. Call `capabilities` with `detail=false`; match the user's intent using `name` and `description`.
-2. If multiple capabilities match, ask the user to choose. Do not guess a code.
-3. Call `describe` for the selected code only; read its `inputSchema`, required fields, descriptions, and limits.
-4. Build and validate `arguments` from that schema. Keep `capabilityCode` outside the arguments object.
-5. Call `invoke` and return the provider result without leaking credentials or internal provider configuration.
+1. 使用 `detail=false` 调用 `capabilities`；根据 `name` 和 `description` 匹配用户意图。
+2. 若匹配多个能力，请用户选择；不要猜测代码。
+3. 只对选定代码调用 `describe`；阅读其 `inputSchema`、必填字段、说明和限制。
+4. 基于该模式构建并校验 `arguments`。将 `capabilityCode` 放在参数对象之外。
+5. 调用 `invoke` 并返回提供方结果，不得泄露凭证或提供方内部配置。
 
-## Failure handling
+## 失败处理
 
-- `AUTH_API_KEY_MISSING` / `AUTH_API_KEY_INVALID`: stop and ask for a valid API key.
-- `CONFIG_INVALID` / `SERVICE_INVALID`: ask for a valid service configuration.
-- `REQUEST_TIMEOUT` / `REQUEST_FAILED`: report a safe summary and retry only after the network or service issue is addressed.
-- Empty or ambiguous discovery results: ask the user for a more specific capability or clarification.
-- Schema validation failure: ask for missing business inputs; never invent secrets or hidden provider fields.
+- `AUTH_API_KEY_MISSING` / `AUTH_API_KEY_INVALID`：停止并索取有效 API 密钥。
+- `CONFIG_INVALID` / `SERVICE_INVALID`：索取有效的服务配置。
+- `REQUEST_TIMEOUT` / `REQUEST_FAILED`：报告不泄露敏感信息的摘要，仅在网络或服务问题解决后重试。
+- 发现结果为空或不明确：请用户提供更具体的能力需求或澄清。
+- 模式校验失败：索取缺少的业务输入；绝不编造密钥或隐藏的提供方字段。
 
-## Boundaries
+## 边界
 
-- TaskBot is only one provider; do not hard-code TaskPlan, TaskPlanDetail, Cookie, `sid`, or internal task protocol fields.
-- Do not load every schema before a capability is selected.
-- Do not call a capability code that was not discovered or explicitly configured.
-- Do not summarize, transform, or expose sensitive provider output unless the user asks and the data is safe to return.
+- TaskBot 只是一个提供方；不要硬编码 TaskPlan、TaskPlanDetail、Cookie、`sid` 或内部任务协议字段。
+- 不要在选择能力前加载所有模式。
+- 不要调用未发现或未明确配置的能力代码。
+- 除非用户要求且数据可安全返回，否则不要概括、转换或暴露敏感的提供方输出。

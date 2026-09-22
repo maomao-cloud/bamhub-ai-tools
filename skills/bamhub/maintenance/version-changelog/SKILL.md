@@ -12,7 +12,7 @@ examples:
     output: "已生成版本变更描述，更新 CHANGELOG.md，并更新版本号"
 ---
 
-# 版本变更记录 Skill
+# 版本变更记录技能
 
 ## 技能功能
 

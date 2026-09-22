@@ -1,7 +1,7 @@
 ---
 name: rule-refine
 description: 从当前改动或当前会话中提炼、改写并落地团队规则
-argument-hint: [topic or file]
+argument-hint: [主题或文件]
 ---
 
 # /rule-refine

@@ -95,3 +95,4 @@ skills/bamhub/integrations/kibana-search/.local/*
 !skills/bamhub/integrations/kibana-search/.local/.gitkeep
 skills/bamhub/integrations/ai-capability/.local/*
 !skills/bamhub/integrations/ai-capability/.local/.gitkeep
+.worktrees/

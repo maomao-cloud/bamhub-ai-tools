@@ -33,7 +33,7 @@ test('kibana-search skill documents log query and shared-auth login commands', (
   assert.match(content, /skills\/bamhub\/integrations\/shared-auth\/scripts\/auth login/);
   assert.match(content, /auth\.profile|shared-auth/);
   assert.match(content, /raw logs|原始日志/i);
-  assert.match(content, /add interpretation separately only if asked/i);
+  assert.match(content, /仅在被要求时，才额外给出解读/);
   assert.doesNotMatch(content, /always summarize|must summarize|summary-only/i);
   assert.match(content, /hermes-agent|CI|remote|headless/i);
 });

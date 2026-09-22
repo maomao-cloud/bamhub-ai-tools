@@ -1,131 +1,135 @@
 ---
 name: design-retrospective
-description: Use when the user explicitly asks for a retrospective on recent work to extract reusable design principles, structural patterns, and future migration guidance for upcoming requirements or other projects
+description: 当用户明确要求复盘近期工作，以提炼可复用的设计原则、结构模式，以及面向后续需求或其他项目的迁移指导时使用
 ---
 
-# Design Retrospective
+# 设计复盘
 
-## Overview
+## 概述
 
-Use this skill only when the user explicitly invokes it or explicitly asks for this kind of retrospective. Do not auto-apply it just because a general review or architecture question seems related.
+仅当用户明确调用此 skill，或明确要求进行此类复盘时使用。不要仅因一般性评审或架构问题看似相关，就自动应用它。
 
-The goal is not just to explain the current implementation, but to distill reusable design thinking for the next requirement or another project.
+目标不只是解释当前实现，还要提炼出可用于下一项需求或其他项目的可复用设计思路。
 
-Default assumption: the current design has intent. If the intent is unclear, the gap is in understanding, not in the user's reasoning.
+默认假设：当前设计是有意图的。若意图不清晰，缺口在于理解，而非用户的推理。
 
-## When to Use
+## 何时使用
 
-- Recent work should be mined for reusable design principles rather than only code-style feedback
-- You need to identify patterns, boundaries, extension points, or external-caller considerations
-- The user wants guidance that can transfer to the next requirement or another project
-- You are unsure about the design intent and need to ask 2-3 structured hypotheses before concluding
+- 需要从近期工作中提炼可复用的设计原则，而不只是提供代码风格反馈
+- 需要识别模式、边界、扩展点或面向外部调用方的考量
+- 用户希望获得能迁移到下一项需求或其他项目的指导
+- 对设计意图没有把握，需要在下结论前提出 2～3 个结构化假设
 
-Do not use this skill for:
-- Pure formatting, lint, or naming reviews
-- Full-repository architecture audits
-- Automatic memory updates
+不要将此 skill 用于：
 
-## Evidence Sources
+- 纯格式、lint 或命名评审
+- 全仓库架构审计
+- 自动更新记忆
 
-Collect evidence in this order:
+## 证据来源
 
-1. Current conversation context
-2. Current branch unmerged commits relative to the repository's main/base branch
-3. Explicit conventions
-4. Code facts
+按以下顺序收集证据：
 
-Rules:
-- If team conventions are present, ask the user whether to include them before treating them as part of the analysis baseline.
-- Treat `CLAUDE.md` as an explicit convention source when present.
-- Do not treat `README.md` as a team convention source unless the user explicitly says it is normative.
-- Code facts can supplement or correct written guidance.
-- Ignore conversation noise that does not affect design intent, reusable principles, code style, or collaboration corrections.
+1. 当前对话上下文
+2. 当前分支相对于仓库主分支／基线分支的未合并提交
+3. 明确约定
+4. 代码事实
 
-## Analysis Priorities
+规则：
 
-Primary:
-- Reusable design principles
-- Structural patterns and boundaries
-- Extension points and external-caller friendliness
-- Migration guidance for future work
+- 若存在团队约定，在将其纳入分析基线前，先询问用户是否需要纳入。
+- 存在 `CLAUDE.md` 时，将其视为明确约定的来源。
+- 除非用户明确说明 `README.md` 具有规范性，否则不要将其视为团队约定来源。
+- 代码事实可以补充或修正文档中的指导。
+- 忽略不影响设计意图、可复用原则、代码风格或协作修正的对话噪声。
 
-Secondary:
-- Code style signals
-- Collaboration preferences
-- Conversation corrections worth remembering
+## 分析优先级
 
-Do not let secondary signals dominate the output.
+主要关注：
 
-## Clarify Low-Confidence Design Understanding
+- 可复用的设计原则
+- 结构模式与边界
+- 扩展点与对外部调用方的友好性
+- 面向未来工作的迁移指导
 
-When design intent is unclear, do not question whether the user had intent.
-Instead, present 2-3 concrete hypotheses and ask which is closest.
+次要关注：
 
-Example:
-1. This boundary exists to isolate project-specific rules from reusable logic
-2. This abstraction exists to preserve extension points for future external callers
-3. This split exists to keep the workflow evolvable before hook automation
+- 代码风格信号
+- 协作偏好
+- 值得记住的对话修正
 
-If all hypotheses are wrong, ask the user to supply the real intent, then continue from that answer.
+不要让次要信号主导输出内容。
 
-## Output Template
+## 澄清低置信度的设计理解
 
-1. Reusable design principles
-2. Patterns and structural approaches observed
-3. Migration guidance for future tasks or other projects
-4. Low-confidence areas requiring confirmation
-5. Code style and collaboration preference supplement
-6. Optional memory suggestions
+当设计意图不清晰时，不要质疑用户是否具有设计意图。应提出 2～3 个具体假设，并询问哪一个最接近实际情况。
 
-Guidance for each section:
+示例：
 
-### 1. Reusable design principles
+1. 该边界用于将项目特有规则与可复用逻辑隔离开来
+2. 该抽象用于为未来的外部调用方保留扩展点
+3. 该拆分用于在引入 Hook 自动化之前保持工作流可演进
 
-Lead with the principles that should survive this task and be reused later.
-Prefer statements about boundaries, extension points, caller expectations, workflow decomposition, or anti-drift practices.
+若所有假设都不正确，请用户说明真实意图，再依据其回答继续。
 
-### 2. Patterns and structural approaches observed
+## 输出模板
 
-Name a pattern only when the evidence is strong.
-If confidence is lower, describe the structure conservatively as a boundary, split, orchestration shape, or extension-point strategy.
+1. 可复用的设计原则
+2. 观察到的模式与结构方法
+3. 面向未来任务或其他项目的迁移指导
+4. 需要确认的低置信度事项
+5. 代码风格和协作偏好的补充
+6. 可选的记忆建议
 
-### 3. Migration guidance for future tasks or other projects
+各部分的说明：
 
-Convert observations into concrete reuse advice for the next requirement or another codebase.
-Answer: what should be repeated, what should be generalized, and under what conditions it still applies.
+### 1. 可复用的设计原则
 
-### 4. Low-confidence areas requiring confirmation
+优先说明应当超越本任务、可在后续复用的原则。
+优先关注边界、扩展点、调用方预期、工作流拆分或防止设计漂移的实践。
 
-If uncertainty remains, list only the points that would materially change the retrospective.
-Provide 2-3 structured hypotheses for each point.
-If there is no meaningful uncertainty, write `None`.
+### 2. 观察到的模式与结构方法
 
-### 5. Code style and collaboration preference supplement
+仅在证据充分时才为某种做法命名为设计模式。
+若置信度较低，请保守地将其描述为边界、拆分、编排形态或扩展点策略。
 
-Keep this section short.
-Include stable code-style signals, collaboration corrections from the conversation, and only the preference details that help future design analysis.
+### 3. 面向未来任务或其他项目的迁移指导
 
-### 6. Optional memory suggestions
+将观察结果转化为面向下一项需求或其他代码库的具体复用建议。
+回答：哪些做法应重复采用、哪些应进一步泛化，以及它在什么条件下仍然适用。
 
-Suggest memory candidates only when they look stable across future work.
-Do not write memory automatically.
+### 4. 需要确认的低置信度事项
 
-## Working Sequence
+若仍存在不确定性，只列出会实质改变复盘结论的事项。
+为每个事项提供 2～3 个结构化假设。
+如果没有有意义的不确定性，写 `无`。
 
-1. Read the current conversation and extract design-intent signals.
-2. Inspect current branch unmerged commits relative to the repository's main/base branch for recurring boundaries, patterns, and extension choices.
-3. Scan for explicit conventions.
-4. If clear team conventions exist, ask whether to include them.
-5. Use code facts to confirm or correct the written conventions.
-6. Draft the six output sections with design-first emphasis.
-7. If any design conclusion is low-confidence, pause and ask 2-3 structured hypotheses.
-8. Incorporate the user's clarification and finish the retrospective.
+### 5. 代码风格和协作偏好的补充
 
-## Common Mistakes
+本节应保持简短。
+包含稳定的代码风格信号、对话中的协作修正，以及仅对未来设计分析有帮助的偏好细节。
 
-- Reducing the review to coding style and missing design reuse value
-- Treating unclear design as lack of intent
-- Giving guidance only for the current task instead of the next one
-- Skipping the “include team conventions?” check when convention sources are present
-- Asking vague clarification questions instead of offering 2-3 hypotheses
-- Naming a formal design pattern without strong evidence
+### 6. 可选的记忆建议
+
+仅当某项信息看起来能在未来工作中保持稳定时，才建议将其作为记忆候选。
+不要自动写入记忆。
+
+## 工作流程
+
+1. 阅读当前对话，提取有关设计意图的信号。
+2. 检查当前分支相对于仓库主分支／基线分支的未合并提交，寻找重复出现的边界、模式和扩展选择。
+3. 扫描明确约定。
+4. 如果存在清晰的团队约定，询问用户是否将其纳入。
+5. 用代码事实验证或修正文档约定。
+6. 以设计优先为重点，起草上述六个输出部分。
+7. 如果任何设计结论的置信度较低，暂停并提出 2～3 个结构化假设。
+8. 整合用户的澄清，完成复盘。
+
+## 常见错误
+
+- 将评审缩减为代码风格，遗漏设计复用价值
+- 将设计不清晰视为缺少设计意图
+- 只为当前任务提供建议，而不面向下一项需求
+- 在存在约定来源时，跳过“是否纳入团队约定”的确认
+- 提出模糊的澄清问题，而非给出 2～3 个假设
+- 在证据不足时为其冠以正式设计模式名称

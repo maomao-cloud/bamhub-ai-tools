@@ -1,4 +1,4 @@
 interface:
-  display_name: "Playbook Design"
-  short_description: "Project-aware design discovery"
-  default_prompt: "Use $playbook-design to prepare a project-aware design brief before brainstorming."
+  display_name: "项目化设计调研"
+  short_description: "结合项目上下文进行设计调研"
+  default_prompt: "使用 $playbook-design 在头脑风暴前准备一份结合项目上下文的设计简报。"

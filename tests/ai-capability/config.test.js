@@ -51,14 +51,16 @@ test('loads the API key from the configured local keychain service when environm
   assert.equal(resolveApiKey(service, {}, () => 'keychain-value'), 'keychain-value');
 });
 
-test('loads the bundled local configuration when invoked outside the repository root', () => {
+test('requires repository-local configuration when invoked outside the repository root', () => {
   const previous = process.env.AI_CAPABILITY_CONFIG;
   const cwd = process.cwd();
   delete process.env.AI_CAPABILITY_CONFIG;
   try {
     process.chdir(os.tmpdir());
-    const config = loadConfig();
-    assert.equal(config.defaultService, 'bamboo');
+    assert.throws(() => loadConfig(), error => {
+      assert.equal(error.code, 'CONFIG_INVALID');
+      return true;
+    });
   } finally {
     process.chdir(cwd);
     if (previous === undefined) delete process.env.AI_CAPABILITY_CONFIG;
