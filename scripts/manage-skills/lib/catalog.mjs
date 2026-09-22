@@ -68,30 +68,74 @@ async function realpathInside(candidate, root) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-async function collectSymlinks(directory, links = []) {
+async function collectSymlinks(directory, root, links = [], visited = new Set()) {
+  let canonicalDirectory;
+  try {
+    canonicalDirectory = await fs.realpath(directory);
+  } catch {
+    return links;
+  }
+  if (visited.has(canonicalDirectory)) return links;
+  visited.add(canonicalDirectory);
+
   for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     const stat = await fs.lstat(entryPath);
     if (stat.isSymbolicLink()) {
       links.push(entryPath);
+      let target;
+      try {
+        target = await fs.realpath(entryPath);
+      } catch {
+        continue;
+      }
+      const targetStat = await fs.stat(entryPath);
+      if (targetStat.isDirectory() && await realpathInside(target, root)) {
+        await collectSymlinks(target, root, links, visited);
+      }
       continue;
     }
-    if (stat.isDirectory()) await collectSymlinks(entryPath, links);
+    if (stat.isDirectory()) await collectSymlinks(entryPath, root, links, visited);
   }
   return links;
 }
 
-async function findSkillFiles(directory, result = []) {
+async function findSkillFiles(directory, root, result = [], invalid = []) {
   for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
     const entryPath = path.join(directory, entry.name);
     const stat = await fs.lstat(entryPath);
     if (entry.name === 'SKILL.md') {
       result.push(entryPath);
+    } else if (stat.isSymbolicLink()) {
+      let targetStat;
+      try {
+        targetStat = await fs.stat(entryPath);
+      } catch {
+        invalid.push({
+          relativeSource: path.relative(root, entryPath).split(path.sep).join('/'),
+          skillFile: null,
+          reason: 'symlink directory target is unavailable',
+        });
+        continue;
+      }
+      if (!targetStat.isDirectory()) continue;
+      let reason = 'symlink directory is not allowed';
+      try {
+        const target = await fs.realpath(entryPath);
+        if (!(await realpathInside(target, root))) reason = 'symlink directory escapes catalog';
+      } catch {
+        reason = 'symlink directory target is unavailable';
+      }
+      invalid.push({
+        relativeSource: path.relative(root, entryPath).split(path.sep).join('/'),
+        skillFile: null,
+        reason,
+      });
     } else if (stat.isDirectory()) {
-      await findSkillFiles(entryPath, result);
+      await findSkillFiles(entryPath, root, result, invalid);
     }
   }
-  return result;
+  return { skillFiles: result, invalid };
 }
 
 function parseValue(value) {
@@ -135,8 +179,9 @@ export async function discoverCatalog({ catalogRoot }) {
   const root = await fs.realpath(path.resolve(catalogRoot));
   const invalid = [];
   const candidates = [];
-  const skillFiles = await findSkillFiles(root);
-  for (const skillFile of skillFiles.sort()) {
+  const discovered = await findSkillFiles(root, root);
+  invalid.push(...discovered.invalid);
+  for (const skillFile of discovered.skillFiles.sort()) {
     const relativeSkillFile = path.relative(root, skillFile);
     const relativeSource = path.dirname(relativeSkillFile).split(path.sep).join('/');
     const sourceDir = path.dirname(skillFile);
@@ -147,7 +192,7 @@ export async function discoverCatalog({ catalogRoot }) {
       if (!(await realpathInside(sourceReal, root))) throw new Error('source escapes catalog');
       const skillReal = await fs.realpath(skillFile);
       if (!(await realpathInside(skillReal, sourceReal))) throw new Error('SKILL.md escapes source bundle');
-      for (const link of await collectSymlinks(sourceDir)) {
+      for (const link of await collectSymlinks(sourceDir, root)) {
         if (!(await realpathInside(link, root))) throw new Error('bundle resource symlink escapes catalog');
       }
       const metadata = parseFrontmatter(await fs.readFile(skillFile, 'utf8'));
@@ -197,7 +242,11 @@ export function resolveSelectors(selectors, catalog) {
 
   for (const selector of selectors) {
     const requestedName = selector?.name;
-    const sourceRelative = selector?.sourceRelative ?? selector?.source;
+    if (Object.hasOwn(selector ?? {}, 'source')) {
+      errors.push({ selector, reason: 'sourceRelative is required' });
+      continue;
+    }
+    const sourceRelative = selector?.sourceRelative;
     let skill;
     if (sourceRelative) {
       skill = bySource.get(sourceRelative);

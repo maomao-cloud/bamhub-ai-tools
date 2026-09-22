@@ -172,11 +172,19 @@ test('discoverCatalog rejects invalid names, malformed frontmatter, duplicate na
   await fs.mkdir(linked, { recursive: true });
   await fs.symlink(external, path.join(linked, 'SKILL.md'));
 
+  const outsideSource = path.join(path.dirname(root), 'outside-source');
+  await writeSkill(path.dirname(root), path.basename(outsideSource), { name: 'outside-source', description: 'Outside source' });
+  await fs.symlink(outsideSource, path.join(root, 'outside-source-link'), 'dir');
+  const internalTarget = await writeSkill(root, 'internal-target', { name: 'internal-target', description: 'Internal target' });
+  await fs.symlink(internalTarget, path.join(root, 'internal-source-link'), 'dir');
+
   const catalog = await discoverCatalog({ catalogRoot: root });
-  assert.deepEqual(catalog.skills.map((skill) => skill.name), ['valid', 'valid']);
+  assert.deepEqual(catalog.skills.map((skill) => skill.name), ['valid', 'internal-target', 'valid']);
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'invalid-name' && /name/i.test(entry.reason)));
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'missing-description' && /description|frontmatter/i.test(entry.reason)));
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'linked' && /regular|symlink/i.test(entry.reason)));
+  assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'outside-source-link' && /outside|symlink|directory/i.test(entry.reason)));
+  assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'internal-source-link' && /symlink|directory/i.test(entry.reason)));
   assert.deepEqual(catalog.duplicates, [{ name: 'valid', sources: ['duplicate', 'valid'] }]);
   assert.equal(await fs.stat(path.join(duplicate, 'SKILL.md')).then(() => true), true);
 });
@@ -190,11 +198,19 @@ test('discoverCatalog rejects multiline frontmatter and symlinked resources esca
   const outside = path.join(path.dirname(root), 'outside-resource.txt');
   await fs.writeFile(outside, 'outside');
   await fs.symlink(outside, path.join(escaped, 'resource.txt'));
+  const nestedLinks = await writeSkill(root, 'nested-links', { name: 'nested-links', description: 'Nested links' });
+  const resourceDirectory = path.join(root, 'resource-directory');
+  await fs.mkdir(resourceDirectory);
+  const nestedOutside = path.join(path.dirname(root), 'nested-outside-resource.txt');
+  await fs.writeFile(nestedOutside, 'outside');
+  await fs.symlink(nestedOutside, path.join(resourceDirectory, 'nested-resource.txt'));
+  await fs.symlink(resourceDirectory, path.join(nestedLinks, 'nested-directory'), 'dir');
 
   const catalog = await discoverCatalog({ catalogRoot: root });
   assert.equal(catalog.skills.length, 0);
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'multiline' && /frontmatter|single-line/i.test(entry.reason)));
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'escaped' && /outside|escape|catalog/i.test(entry.reason)));
+  assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'nested-links' && /outside|escape|catalog/i.test(entry.reason)));
 });
 
 test('discoverCatalog requires frontmatter quotes to match exactly without trailing content', async () => {
@@ -246,4 +262,9 @@ test('resolveSelectors resolves unique names and source-relative selectors, vali
   const qualified = resolveSelectors([{ name: 'shared', sourceRelative: 'skills/b/two' }], catalog);
   assert.equal(qualified.errors.length, 0);
   assert.equal(qualified.selections[0].sourceRelative, 'skills/b/two');
+
+  const legacy = resolveSelectors([{ name: 'unique', source: 'skills/three' }], catalog);
+  assert.equal(legacy.selections.length, 0);
+  assert.equal(legacy.errors.length, 1);
+  assert.match(legacy.errors[0].reason, /source.?relative/i);
 });
