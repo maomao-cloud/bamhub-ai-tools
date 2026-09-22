@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 import {
   discoverCatalog,
@@ -84,6 +84,22 @@ test('resolveCatalog applies explicit, environment, script-relative, then intera
   assert.equal(interactiveResult.source, 'interactive');
 });
 
+test('resolveCatalog decodes script file URLs with spaces and non-ASCII paths', async () => {
+  const root = await tempDir();
+  const repositoryRoot = path.join(root, 'repo with spaces', '仓库');
+  const scriptFile = path.join(repositoryRoot, 'scripts', 'manage-skills', 'lib', 'catalog.mjs');
+  const derived = path.join(repositoryRoot, 'skills');
+  await fs.mkdir(derived, { recursive: true });
+
+  const result = await resolveCatalog({
+    env: {},
+    scriptFile: pathToFileURL(scriptFile).href,
+  });
+
+  assert.equal(result.root, derived);
+  assert.equal(result.source, 'script-relative');
+});
+
 test('explicit and environment catalog paths fail without fallback and no path is created', async () => {
   const root = await tempDir();
   const missingExplicit = path.join(root, 'missing-explicit');
@@ -120,6 +136,26 @@ test('discoverCatalog recursively finds valid skills and parses single-line fron
   assert.equal(path.basename(catalog.skills[1].sourceDir), 'one');
   assert.equal(typeof catalog.skills[0].sourceIdentity.dev, 'number');
   assert.equal(typeof catalog.skills[0].sourceIdentity.ino, 'number');
+});
+
+test('discoverCatalog reports canonical source identity across a symlinked catalog alias', async () => {
+  const root = await tempDir();
+  const sourceDir = await writeSkill(root, 'skills/aliased', { name: 'aliased', description: 'Aliased' });
+  const catalogAlias = path.join(root, 'catalog-alias');
+  await fs.symlink(root, catalogAlias, 'dir');
+
+  const canonicalCatalog = await discoverCatalog({ catalogRoot: root });
+  const aliasedCatalog = await discoverCatalog({ catalogRoot: catalogAlias });
+  const canonical = canonicalCatalog.skills[0];
+  const aliased = aliasedCatalog.skills[0];
+  const canonicalSource = await fs.realpath(sourceDir);
+
+  assert.equal(aliasedCatalog.root, canonicalCatalog.root);
+  assert.equal(canonical.sourceIdentity.canonicalPath, canonicalSource);
+  assert.equal(aliased.sourceIdentity.canonicalPath, canonicalSource);
+  assert.equal(aliased.sourceIdentity.dev, canonical.sourceIdentity.dev);
+  assert.equal(aliased.sourceIdentity.ino, canonical.sourceIdentity.ino);
+  assert.deepEqual(aliased.sourceIdentity, canonical.sourceIdentity);
 });
 
 test('discoverCatalog rejects invalid names, malformed frontmatter, duplicate names, and symlinked SKILL.md', async () => {
@@ -161,6 +197,28 @@ test('discoverCatalog rejects multiline frontmatter and symlinked resources esca
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'escaped' && /outside|escape|catalog/i.test(entry.reason)));
 });
 
+test('discoverCatalog requires frontmatter quotes to match exactly without trailing content', async () => {
+  const root = await tempDir();
+  const cases = [
+    ['mismatched', "name: 'mismatched\ndescription: \"Description'"],
+    ['trailing', 'name: "trailing" extra\ndescription: Description'],
+    ['single-trailing', "name: 'single' trailing\ndescription: Description"],
+  ];
+  for (const [relative, fields] of cases) {
+    const sourceDir = path.join(root, relative);
+    await fs.mkdir(sourceDir, { recursive: true });
+    await fs.writeFile(path.join(sourceDir, 'SKILL.md'), `---\n${fields}\n---\n`);
+  }
+  await writeSkill(root, 'quoted-valid', { name: 'quoted-valid', description: '"Quoted description"' });
+
+  const catalog = await discoverCatalog({ catalogRoot: root });
+
+  assert.deepEqual(catalog.skills.map((skill) => skill.name), ['quoted-valid']);
+  for (const [relative] of cases) {
+    assert.ok(catalog.invalid.some((entry) => entry.relativeSource === relative && /quote|single-line|frontmatter/i.test(entry.reason)));
+  }
+});
+
 test('resolveSelectors resolves unique names and source-relative selectors, validates link names, and reports collisions', async () => {
   const root = await tempDir();
   await writeSkill(root, 'skills/a/one', { name: 'shared', description: 'A' });
@@ -189,5 +247,3 @@ test('resolveSelectors resolves unique names and source-relative selectors, vali
   assert.equal(qualified.errors.length, 0);
   assert.equal(qualified.selections[0].sourceRelative, 'skills/b/two');
 });
-
-void fileURLToPath;

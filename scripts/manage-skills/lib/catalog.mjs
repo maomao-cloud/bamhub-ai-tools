@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SKILL_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -43,7 +44,7 @@ export async function resolveCatalog({
     return { root, source: 'environment' };
   }
 
-  const scriptPath = scriptFile.startsWith('file:') ? new URL(scriptFile).pathname : scriptFile;
+  const scriptPath = scriptFile.startsWith('file:') ? fileURLToPath(scriptFile) : scriptFile;
   const repositoryRoot = path.resolve(path.dirname(scriptPath), '..', '..', '..');
   const derived = path.join(repositoryRoot, 'skills');
   const derivedStatus = await directoryStatus(derived);
@@ -96,8 +97,9 @@ async function findSkillFiles(directory, result = []) {
 function parseValue(value) {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if ((trimmed.startsWith("'") && trimmed.endsWith("'")) || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
-    if (trimmed.length < 2) return null;
+  const quote = trimmed[0];
+  if (quote === "'" || quote === '"') {
+    if (trimmed.length < 2 || trimmed.at(-1) !== quote) return null;
     return trimmed.slice(1, -1);
   }
   if (trimmed.includes('\n')) return null;
@@ -155,7 +157,11 @@ export async function discoverCatalog({ catalogRoot }) {
         sourceDir,
         skillFile,
         relativeSource,
-        sourceIdentity: { dev: sourceIdentity.dev, ino: sourceIdentity.ino },
+        sourceIdentity: {
+          canonicalPath: sourceReal,
+          dev: sourceIdentity.dev,
+          ino: sourceIdentity.ino,
+        },
       });
     } catch (error) {
       invalid.push({ relativeSource, skillFile, reason: error.message });
