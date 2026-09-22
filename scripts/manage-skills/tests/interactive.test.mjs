@@ -42,6 +42,37 @@ function dependencies(calls) {
   };
 }
 
+test('missing catalog prompts for an interactive path and re-resolves it in nonTTY mode', async () => {
+  const calls = [];
+  const io = scriptedIo('/catalog-recovered\ny\na\na\ny\n');
+  await runInteractive({
+    ...dependencies(calls),
+    io,
+    catalogResolver: async (options = {}) => (typeof options === 'string' ? { root: '/catalog-recovered' } : { root: '/missing', missing: true }),
+  });
+  assert.match(io.text(), /catalog path|path/i);
+  assert.ok(calls.some((call) => call.type === 'discover' && call.catalogRoot === '/catalog-recovered'));
+});
+
+test('missing catalog uses injected line input in TTY mode', async () => {
+  const calls = [];
+  const { io, input } = fakeTtyIo();
+  const prompts = [];
+  io.line = async (prompt) => { prompts.push(prompt); return '/catalog-recovered'; };
+  const promise = runInteractive({
+    ...dependencies(calls),
+    io,
+    catalogResolver: async (options = {}) => (typeof options === 'string' ? { root: '/catalog-recovered' } : { root: '/missing', missing: true }),
+  });
+  for (const chunk of ['y', 'a', '\r', 'a', '\r', 'y']) {
+    await new Promise((resolve) => setImmediate(resolve));
+    input.emit('data', chunk);
+  }
+  const result = await promise;
+  assert.equal(result.catalogRoot, '/catalog-recovered');
+  assert.ok(prompts.length > 0);
+});
+
 test('wizard collects catalog, all runtimes, desired skills, previews plan, and approves without mutation hooks', async () => {
   const calls = [];
   const io = scriptedIo('y\na\na\ny\n');

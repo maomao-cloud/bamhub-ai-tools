@@ -84,6 +84,7 @@ function createSession(io) {
     }
   }
   function line(prompt) {
+    if (typeof io?.line === 'function') return Promise.resolve(io.line(prompt));
     return new Promise((resolve, reject) => {
       installSignals(reject);
       write(io, `${prompt} `);
@@ -243,8 +244,15 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
   try {
     const detected = await normalizeTargetDetector(targetDetector)();
     const runtimes = (detected ?? []).filter((target) => target.selectable !== false);
-    const resolved = await normalizeResolver(catalogResolver)();
-    const catalogRoot = resolved?.root ?? resolved?.catalog?.root;
+    const resolver = normalizeResolver(catalogResolver);
+    let resolved = await resolver();
+    let catalogRoot = resolved?.root ?? resolved?.catalog?.root;
+    if (resolved?.missing || !catalogRoot) {
+      const enteredPath = String(await session.line('Catalog path (enter a path to continue):')).trim();
+      if (!enteredPath) return { cancelled: true };
+      resolved = await resolver(enteredPath);
+      catalogRoot = resolved?.root ?? resolved?.catalog?.root;
+    }
     write(io, `Catalog: ${catalogRoot ?? '(unknown)'}\n`);
     if (!(await session.confirm('Use this catalog? [y/N]'))) return { cancelled: true };
     const catalog = await discoverCatalog({ catalogRoot: resolved?.root ?? resolved?.catalog?.root ?? resolved?.catalogRoot, resolution: resolved });

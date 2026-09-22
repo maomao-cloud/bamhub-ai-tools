@@ -45,7 +45,10 @@ export async function resolveCatalog({
   }
 
   const scriptPath = scriptFile.startsWith('file:') ? fileURLToPath(scriptFile) : scriptFile;
-  const repositoryRoot = path.resolve(path.dirname(scriptPath), '..', '..', '..');
+  const scriptDirectory = path.dirname(scriptPath);
+  const repositoryRoot = path.basename(scriptDirectory) === 'manage-skills'
+    ? path.resolve(scriptDirectory, '..', '..')
+    : path.resolve(scriptDirectory, '..', '..', '..');
   const derived = path.join(repositoryRoot, 'skills');
   const derivedStatus = await directoryStatus(derived);
   if (derivedStatus.valid || (derivedStatus.missing && (await directoryStatus(repositoryRoot)).valid)) {

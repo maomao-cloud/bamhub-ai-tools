@@ -49,6 +49,14 @@ test('dry-run reports changes without creating locks, links, state, or quarantin
   assert.equal(await fs.lstat(f.stateRoot).catch(() => null), null);
 });
 
+test('direct apply uses target stateRoot without requiring injected state', async () => {
+  const f = await fixture();
+  f.planSet.plans[0].target.stateRoot = f.stateRoot;
+  const report = await applyPlanSet(f.planSet);
+  assert.equal(report.exitCode, 0, JSON.stringify(report));
+  assert.equal(report.targets[0].verified, true);
+});
+
 test('creates link, atomically writes manifest, and post-verifies', async () => {
   const f = await fixture();
   const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot } });

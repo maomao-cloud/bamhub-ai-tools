@@ -15,6 +15,7 @@ scripts/manage-skills/manage-skills
 ```bash
 scripts/manage-skills/manage-skills.mjs status --catalog <path> --runtime dsh --json
 scripts/manage-skills/manage-skills.mjs apply --catalog <path> --runtime dsh --enable brainstorming --yes
+scripts/manage-skills/manage-skills.mjs recover --state-root <path> --journal <path> --json
 ```
 
 `apply` 的 `--enable` 是最终 desired state；清空本工具当前 manifest 管理的链接时，必须显式使用：
@@ -80,7 +81,7 @@ scripts/manage-skills/manage-skills.mjs status --catalog <path> --runtime dsh --
 scripts/manage-skills/manage-skills.mjs plan --catalog <path> --runtime dsh --enable brainstorming --json
 ```
 
-非交互 `apply` 必须同时提供明确 desired state 与 `--yes`。JSON 模式只把一个报告写到 stdout，诊断写到 stderr。执行时工具会重新扫描 catalog、manifest 和 target，并校验身份、fingerprint、lock 与链接类型；竞态变化会报告 conflict，而不是覆盖或删除未知对象。
+非交互 `apply` 必须同时提供明确 desired state 与 `--yes`。`recover` 接受 `--state-root <path> --journal <path>`，调用 journal recovery；成功返回 0，恢复失败返回 1，参数错误返回 2。JSON 模式只把一个报告写到 stdout，诊断写到 stderr。执行时工具会重新扫描 catalog、manifest 和 target，并校验身份、fingerprint、lock 与链接类型；竞态变化会报告 conflict，而不是覆盖或删除未知对象。
 
 实现与测试位于本目录。运行全部 manage-skills 测试：
 

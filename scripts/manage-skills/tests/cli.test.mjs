@@ -67,6 +67,18 @@ async function runTTY(args, env, answer) {
 
 test.after(async () => Promise.all(tempRoots.map((dir) => fs.rm(dir, { recursive: true, force: true }))));
 
+test('recover validates arguments and reports recovery failures with exit one', async () => {
+  const invalid = await run(['recover', '--state-root', '/tmp/state'], {});
+  assert.equal(invalid.code, 2);
+  assert.match(invalid.stderr, /journal|required|invalid/i);
+  const failed = await run(['recover', '--state-root', '/tmp/state', '--journal', '/tmp/missing-journal', '--json'], {});
+  assert.equal(failed.code, 1);
+  const report = JSON.parse(failed.stdout);
+  assert.equal(report.ok, false);
+  assert.equal(report.exitCode, 1);
+  assert.match(failed.stderr, /journal/i);
+});
+
 test('rejects invalid commands with argument exit code', async () => {
   const result = await run(['wat']);
   assert.equal(result.code, 2);

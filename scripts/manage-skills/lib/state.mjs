@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 const VERSION = 1;
+const KEBAB_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function stateError(code, message, details = {}) {
   const error = new Error(message);
@@ -140,6 +141,10 @@ function validateSourceIdentity(value) {
   }
 }
 
+function relativeNonEmpty(value) {
+  return typeof value === 'string' && value.length > 0 && !path.isAbsolute(value) && !/^[A-Za-z]:[\\/]/.test(value);
+}
+
 function validateManifest(value) {
   if (!isPlainObject(value) || value.version !== VERSION || !isPlainObject(value.target) || !isPlainObject(value.catalog) || !Array.isArray(value.links)) {
     throw stateError('MANIFEST_MALFORMED', 'manifest must contain version 1, target, catalog, and links');
@@ -149,12 +154,15 @@ function validateManifest(value) {
   }
   validateManifestIdentity(value.target, 'manifest target');
   validateManifestIdentity(value.catalog, 'manifest catalog', { git: true });
+  const linkNames = new Set();
   for (const link of value.links) {
     if (!isPlainObject(link) || Object.keys(link).some((key) => !['linkName', 'sourceRelative', 'relativeTarget', 'createdAt', 'sourceIdentity'].includes(key)) ||
-      typeof link.linkName !== 'string' || typeof link.sourceRelative !== 'string' || typeof link.relativeTarget !== 'string' ||
+      typeof link.linkName !== 'string' || !KEBAB_NAME.test(link.linkName) || linkNames.has(link.linkName) ||
+      !relativeNonEmpty(link.sourceRelative) || !relativeNonEmpty(link.relativeTarget) ||
       typeof link.createdAt !== 'string' || Number.isNaN(Date.parse(link.createdAt))) {
       throw stateError('MANIFEST_MALFORMED', 'manifest link entry is invalid');
     }
+    linkNames.add(link.linkName);
     validateSourceIdentity(link.sourceIdentity);
   }
   return value;

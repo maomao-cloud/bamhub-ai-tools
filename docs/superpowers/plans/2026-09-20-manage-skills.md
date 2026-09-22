@@ -423,8 +423,8 @@ git commit -m "feat: add interactive skill manager"
 - Test: `scripts/manage-skills/tests/cli.test.mjs`
 
 **Interfaces:**
-- Commands: default interactive, `status`, `plan`, `apply`.
-- Options: `--catalog`, repeatable `--runtime`, single `--target`, `--enable`, `--disable-all`, `--json`, `--non-interactive`, `--yes`, `--dry-run`.
+- Commands: default interactive, `status`, `plan`, `apply`, `recover --state-root <path> --journal <path> [--json]`. `recover` delegates to `recoverJournal`; success is exit 0, recovery failure exit 1, argument errors exit 2.
+- Options: `--catalog`, repeatable `--runtime`, single `--target`, `--enable`, `--disable-all`, `--state-root`, `--journal`, `--json`, `--non-interactive`, `--yes`, `--dry-run`.
 - `--target` and `--runtime` are mutually exclusive; `--runtime all` expands only confirmed detected standard roots.
 - `apply` requires exactly one desired-state input: `--enable`, `--disable-all`, or interactive selection. `--yes` confirms non-interactive apply; `--non-interactive` without `--yes` fails.
 - Exit codes: `0` verified success; `1` operational/verification/conflict failure; `2` invalid arguments or missing required selection.

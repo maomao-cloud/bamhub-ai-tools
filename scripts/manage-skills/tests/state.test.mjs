@@ -161,6 +161,24 @@ test('manifest schema rejects missing or invalid identities, links, versions, an
   }
 });
 
+test('manifest links enforce kebab names, unique names, and relative paths', async () => {
+  const fixture = await manifestFixture();
+  await writeManifestAtomic(fixture);
+  const files = await fs.readdir(fixture.stateRoot);
+  const manifestPath = path.join(fixture.stateRoot, files.find((file) => file.endsWith('.json')));
+  const invalidLinks = [
+    [{ ...fixture.manifest.links[0], linkName: 'Not_Kebab' }],
+    [{ ...fixture.manifest.links[0], sourceRelative: '' }],
+    [{ ...fixture.manifest.links[0], sourceRelative: '/absolute' }],
+    [{ ...fixture.manifest.links[0], relativeTarget: '/absolute' }],
+    [fixture.manifest.links[0], { ...fixture.manifest.links[0], sourceRelative: 'skills/two' }],
+  ];
+  for (const links of invalidLinks) {
+    await fs.writeFile(manifestPath, JSON.stringify({ ...fixture.manifest, links }));
+    await assert.rejects(loadManifest(fixture), (error) => error.code === 'MANIFEST_MALFORMED');
+  }
+});
+
 test('manifest identity rejects non-plain JSON and incomplete identities', () => {
   assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', canonicalPath: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2, extra: new Date() } }), (error) => error.code === 'IDENTITY_INVALID');
   assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 } }), (error) => error.code === 'IDENTITY_INVALID');

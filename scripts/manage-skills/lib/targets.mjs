@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { stateRootForTarget } from './state.mjs';
+
 function targetError(code, message, reason = message) {
   const error = new Error(message);
   error.code = code;
@@ -111,12 +113,7 @@ async function inspectTargetPath(targetPath) {
   return { absolute, targetStat };
 }
 
-function stateRootFor({ mode }) {
-  if (mode === 'dsh') return null;
-  return path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'manage-skills');
-}
-
-export async function validateTarget({ targetPath, catalogRoot, mode = 'custom' } = {}) {
+export async function validateTarget({ targetPath, catalogRoot, mode = 'custom', env = process.env, home = os.homedir() } = {}) {
   if (typeof targetPath !== 'string' || !path.isAbsolute(targetPath)) {
     throw targetError('UNSAFE_TARGET', 'Target rejected: target path must be absolute', 'target path must be absolute');
   }
@@ -160,7 +157,7 @@ export async function validateTarget({ targetPath, catalogRoot, mode = 'custom' 
     ...identity,
     ...(identity.missing ? { parentIdentity: { canonicalPath: parentRealPath, dev: parentStat.dev, ino: parentStat.ino } } : {}),
     existed: Boolean(targetStat),
-    stateRoot: stateRootFor({ mode }),
+    stateRoot: stateRootForTarget({ runtimeId: mode, env, home }),
   };
 }
 
@@ -193,4 +190,3 @@ export async function resolveTargetSelection({ runtimes = [], customPath, select
 }
 
 export { targetError };
-

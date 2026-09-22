@@ -63,6 +63,17 @@ test('detectRuntimeTargets marks existing directories and rejects existing files
   assert.equal(targets.find((target) => target.id === 'claude').selectable, false);
 });
 
+test('validateTarget derives stateRoot from passed env and home for every target mode', async () => {
+  const root = await tempDir();
+  const catalog = path.join(root, 'catalog');
+  const parent = path.join(root, 'global');
+  const home = path.join(root, 'home');
+  await fs.mkdir(catalog, { recursive: true });
+  await fs.mkdir(parent, { recursive: true });
+  const identity = await validateTarget({ targetPath: path.join(parent, 'skills'), catalogRoot: catalog, mode: 'custom', env: { XDG_STATE_HOME: path.join(root, 'state') }, home });
+  assert.equal(identity.stateRoot, path.join(root, 'state', 'manage-skills'));
+});
+
 test('validateTarget returns identity for a missing final directory under a safe global parent', async () => {
   const root = await tempDir();
   const catalog = path.join(root, 'catalog');

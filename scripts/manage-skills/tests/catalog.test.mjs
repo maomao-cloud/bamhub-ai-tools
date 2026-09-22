@@ -84,6 +84,12 @@ test('resolveCatalog applies explicit, environment, script-relative, then intera
   assert.equal(interactiveResult.source, 'interactive');
 });
 
+test('real CLI entry resolves catalog from repository root', async () => {
+  const result = await resolveCatalog({ env: {}, scriptFile: path.resolve(new URL('../manage-skills.mjs', import.meta.url).pathname) });
+  assert.equal(result.root, path.resolve(new URL('../../../skills', import.meta.url).pathname));
+  assert.equal(result.source, 'script-relative');
+});
+
 test('resolveCatalog decodes script file URLs with spaces and non-ASCII paths', async () => {
   const root = await tempDir();
   const repositoryRoot = path.join(root, 'repo with spaces', '仓库');

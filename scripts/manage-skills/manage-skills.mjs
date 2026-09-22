@@ -6,10 +6,10 @@ import { detectRuntimeTargets, resolveTargetSelection, validateTarget } from './
 import { stateRootForTarget, loadManifest } from './lib/state.mjs';
 import { scanTarget, validateCatalogSkills } from './lib/links.mjs';
 import { buildPlanSet } from './lib/plan.mjs';
-import { applyPlanSet } from './lib/transaction.mjs';
+import { applyPlanSet, recoverJournal } from './lib/transaction.mjs';
 import { confirmPlanSet, runInteractive } from './lib/interactive.mjs';
 
-const COMMANDS = new Set(['status', 'plan', 'apply']);
+const COMMANDS = new Set(['status', 'plan', 'apply', 'recover']);
 
 function cliError(code, message, exitCode = 2, details = {}) {
   const error = new Error(message);
@@ -26,13 +26,13 @@ function parseArgs(argv) {
   else if (argv[0]?.startsWith('-')) index = 0;
   else if (argv[0]) throw cliError('INVALID_COMMAND', `Unknown command: ${argv[0]}`);
   const options = { command, runtimes: [], enables: [] };
-  const takesValue = new Set(['catalog', 'runtime', 'target', 'enable']);
+  const takesValue = new Set(['catalog', 'runtime', 'target', 'enable', 'state-root', 'journal']);
   for (; index < argv.length; index += 1) {
     const arg = argv[index];
     if (!arg.startsWith('--')) throw cliError('INVALID_ARGUMENT', `Unexpected argument: ${arg}`);
     const [flag, inline] = arg.split('=', 2);
     const name = flag.slice(2);
-    if (!['catalog', 'runtime', 'target', 'enable', 'disable-all', 'json', 'non-interactive', 'yes', 'dry-run'].includes(name)) {
+    if (!['catalog', 'runtime', 'target', 'enable', 'state-root', 'journal', 'disable-all', 'json', 'non-interactive', 'yes', 'dry-run'].includes(name)) {
       throw cliError('INVALID_ARGUMENT', `Unknown option: ${flag}`);
     }
     if (takesValue.has(name)) {
@@ -50,6 +50,8 @@ function parseArgs(argv) {
   if (command === 'plan' && options['disable-all'] === undefined && options.enables.length === 0) throw cliError('DESIRED_STATE_REQUIRED', 'plan requires --enable or --disable-all');
   if (command === 'apply' && options['non-interactive'] && !options.enables.length && !options['disable-all']) throw cliError('DESIRED_STATE_REQUIRED', 'apply requires --enable, --disable-all, or interactive selection');
   if (command === 'apply' && options['non-interactive'] && !options.yes) throw cliError('CONFIRMATION_REQUIRED', '--non-interactive apply requires --yes');
+  if (command === 'recover' && (!options['state-root'] || !options.journal)) throw cliError('INVALID_ARGUMENT', 'recover requires --state-root and --journal');
+  if (command === 'recover' && (options.catalog || options.target || options.runtimes.length || options.enables.length || options['disable-all'])) throw cliError('INVALID_ARGUMENT', 'recover accepts only --state-root, --journal, and --json');
   return options;
 }
 
@@ -146,6 +148,11 @@ async function executeExplicit(options, streams = { stdout: process.stdout, stde
   return reportFor({ ok: result.exitCode === 0, exitCode: result.exitCode, catalog: catalogReport, targets: targetReports });
 }
 
+async function executeRecover(options) {
+  const result = await recoverJournal({ stateRoot: options['state-root'], journalPath: options.journal });
+  return reportFor({ ok: result.recovered === true, exitCode: result.recovered ? 0 : 1, catalog: null, targets: [{ recovery: result }] });
+}
+
 async function executeInteractive(options, streams) {
   const io = {
     input: streams.stdin,
@@ -156,7 +163,7 @@ async function executeInteractive(options, streams) {
   if (!io.isTTY) throw cliError('INTERACTIVE_REQUIRED', 'Interactive mode requires a TTY');
   const result = await runInteractive({
     io,
-    catalogResolver: () => resolveCatalog({ explicitPath: options.catalog, env: process.env, scriptFile: import.meta.url }),
+    catalogResolver: (interactivePath) => resolveCatalog({ explicitPath: options.catalog, env: process.env, scriptFile: import.meta.url, interactivePath }),
     targetDetector: () => detectRuntimeTargets({ env: process.env }),
     discoverCatalog,
     scanValidSkills: ({ catalog }) => validateCatalogSkills(catalog),
@@ -193,7 +200,9 @@ export async function main(argv = process.argv.slice(2), streams = process) {
     if (options.json && tty && (options.command === 'interactive' || (options.command === 'apply' && !options.yes))) {
       throw cliError('CONFIRMATION_REQUIRED', '--json in TTY requires --yes or non-interactive mode');
     }
-    const report = needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
+    const report = options.command === 'recover'
+      ? await executeRecover(options)
+      : needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
     writeOutput(report, { json: Boolean(options.json) }, streams);
     return report.exitCode;
   } catch (error) {

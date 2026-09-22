@@ -97,6 +97,16 @@ tool-skill disabled: false
 
 但这只是 config merge 证据，不是实际 Web session discovery 证据。正式启用 active preset/provider 并完成实际 Web session discovery 仍是独立运行时 gate。
 
+## Final review 修复补充
+
+- 修正真实 CLI 入口的 script-relative catalog 根目录（`scripts/manage-skills/manage-skills.mjs` 向上两级）。
+- 交互式 catalog 缺失时通过 `session.line` 请求路径，并把路径传入 resolver 重新确认/扫描；覆盖 TTY 与 non-TTY 注入测试。
+- 增加 `recover --state-root <path> --journal <path> [--json]`，复用 `recoverJournal`，按 0/1/2 映射成功、恢复失败、参数错误。
+- `validateTarget` 统一使用 `stateRootForTarget` 并传递 env/home；manifest closed schema 校验 kebab、唯一 linkName 与相对路径。
+- 同步脚本 README 与 manage-skills 计划说明；未修改 maomao-deploy YAML。
+
+本次 final-review focused tests：`123 passed, 0 failed`；全仓库 JavaScript 测试：`270 passed, 0 failed`。
+
 ## 工作树
 
 最终实现工作树无未提交代码变更；运行时临时文件未提交。
