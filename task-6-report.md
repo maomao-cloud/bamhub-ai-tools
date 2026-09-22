@@ -4,7 +4,8 @@
 
 - `catalogResolver` now resolves only a candidate; after confirmation, `discoverCatalog` and `scanValidSkills` always run in order, even when the resolver injects a pre-scanned catalog.
 - TTY input clears the deferred ESC timer when a fragmented arrow sequence completes, so later input after an event-loop tick is not cancelled; raw mode is restored on every exit path.
-- PlanSet previews serialize every enumerable entry field in stable key order, including `linkPath`/`sourceDir`/`relativeTarget`, `kind`, `sourceIdentity`, and nested `manifestEntry`; secret-like keys are filtered, while `path`/`source` remain available when supplied by a compatible entry.
+- PlanSet previews now serialize each complete real Plan as a stable, indented JSON object: `target`, `catalog`, `desired`, `create`, `remove`, `keep`, `conflicts`, `protected`, and `fingerprint` are retained, as are entry fields such as `linkPath`/`sourceDir`/`relativeTarget`, `reason`/`kind`, `sourceIdentity`, and nested `manifestEntry`; existing secret-like key filtering remains active.
+- The interactive regression test constructs a real Plan schema with target and catalog identities, desired entries, all five action arrays, and a fingerprint, then asserts those values appear in the preview.
 - Final `onPlanSet` handoff remains after final confirmation; the interactive module does not perform filesystem mutation.
 
 ## Test coverage

@@ -99,57 +99,47 @@ test('wizard passes selected skill objects to plan builder', async () => {
 });
 
 // Avoid accidental reliance on a test-only assertion helper in the first test.
-test('confirmPlanSet renders the complete real PlanSet schema without dropping fields', async () => {
+test('confirmPlanSet renders every real Plan field and entry field without dropping data', async () => {
   const io = scriptedIo('y\n');
   await confirmPlanSet({
     plans: [{
-      target: { label: 'DSH', path: '/target' },
+      target: {
+        id: 'dsh', label: 'DSH', path: '/target', canonicalPath: '/target', dev: 10, ino: 11,
+      },
+      catalog: {
+        path: '/catalog', canonicalPath: '/catalog', dev: 20, ino: 21, gitRemote: 'https://example.test/catalog.git', gitCommit: 'abc123',
+      },
+      desired: [{
+        name: 'new', sourceRelative: 'skills/new', linkName: 'new', sourceDir: '/catalog/new',
+        sourceIdentity: { canonicalPath: '/catalog/new', dev: 1, ino: 2 },
+      }],
       create: [{
-        linkPath: '/target/new',
-        sourceDir: '/catalog/new',
-        relativeTarget: '../catalog/new',
+        linkPath: '/target/new', sourceDir: '/catalog/new', relativeTarget: '../catalog/new',
         sourceIdentity: { canonicalPath: '/catalog/new', dev: 1, ino: 2 },
       }],
       remove: [{
-        linkPath: '/target/old',
-        relativeTarget: '../catalog/old',
+        linkPath: '/target/old', relativeTarget: '../catalog/old',
         manifestEntry: {
-          linkName: 'old',
-          sourceRelative: 'skills/old',
-          relativeTarget: '../catalog/old',
-          sourceIdentity: { canonicalPath: '/catalog/old', dev: 1, ino: 3 },
-          createdAt: '1970-01-01T00:00:00.000Z',
+          linkName: 'old', sourceRelative: 'skills/old', relativeTarget: '../catalog/old',
+          sourceIdentity: { canonicalPath: '/catalog/old', dev: 1, ino: 3 }, createdAt: '1970-01-01T00:00:00.000Z',
         },
       }],
       keep: [{ linkPath: '/target/keep', relativeTarget: '../catalog/keep' }],
       conflicts: [{ linkPath: '/target/conflict', kind: 'foreign-link', reason: 'foreign link' }],
       protected: [{ linkPath: '/target/manual', kind: 'regular-file', reason: 'protected' }],
+      fingerprint: 'plan-fingerprint-123',
     }],
-    create: [{
-      linkPath: '/top/create',
-      sourceDir: '/catalog/create',
-      relativeTarget: '../catalog/create',
-      sourceIdentity: { canonicalPath: '/catalog/create', dev: 1, ino: 4 },
-    }],
-    remove: [{
-      linkPath: '/top/remove',
-      relativeTarget: '../catalog/remove',
-      manifestEntry: { sourceRelative: 'skills/remove', sourceIdentity: { canonicalPath: '/catalog/remove', dev: 1, ino: 5 } },
-    }],
-    keep: [{ linkPath: '/top/keep', relativeTarget: '../catalog/keep' }],
-    conflicts: [{ linkPath: '/top/conflict', kind: 'foreign-link', reason: 'top conflict' }],
-    protected: [{ linkPath: '/top/protected', kind: 'regular-file', reason: 'top protected' }],
   }, io);
   const text = io.text();
   for (const value of [
-    'create', 'remove', 'keep', 'conflicts', 'protected',
-    '/target/new', '/catalog/new', '../catalog/new',
-    'canonicalPath', '/catalog/new',
+    'target', 'catalog', 'desired', 'create', 'remove', 'keep', 'conflicts', 'protected', 'fingerprint',
+    'dsh', '/target', 'canonicalPath', '10', '11',
+    '/catalog', 'gitRemote', 'abc123',
+    'skills/new', '/catalog/new', '../catalog/new',
     'manifestEntry', 'sourceRelative', 'skills/old', '/catalog/old',
     '/target/keep', '../catalog/keep',
     'kind', '/target/conflict', 'foreign-link', 'foreign link',
-    '/target/manual', 'regular-file', 'protected',
-    '/top/create', '/catalog/create',
+    '/target/manual', 'regular-file', 'protected', 'plan-fingerprint-123',
   ]) assert.ok(text.includes(value), `missing preview field: ${value}`);
 });
 

@@ -212,25 +212,16 @@ function sanitizePreviewValue(value, seen = new WeakSet()) {
   );
 }
 
-function renderEntry(entry) {
-  const sanitized = sanitizePreviewValue(entry);
-  if (sanitized === undefined) return '';
-  if (sanitized === null || typeof sanitized !== 'object') return String(sanitized);
-  return JSON.stringify(sanitized);
-}
-function renderPlan(plan, io, heading) {
-  const target = plan?.target ?? {};
-  write(io, `\n${heading}${target.label ?? 'target'}: path=${target.path ?? ''} source=${target.source ?? ''} relative target=${target.relativeTarget ?? ''}\n`);
-  for (const label of ['create', 'remove', 'keep', 'conflicts', 'protected']) {
-    const entries = Array.isArray(plan?.[label]) ? plan[label] : [];
-    write(io, `  ${label}:\n`);
-    for (const entry of entries) write(io, `    - ${renderEntry(entry)}\n`);
-  }
+function renderPlan(plan, io, heading = '') {
+  const sanitized = sanitizePreviewValue(plan);
+  write(io, `\n${heading}Plan\n`);
+  write(io, `${JSON.stringify(sanitized, null, 2)}\n`);
 }
 function renderPlanSet(planSet, io) {
   write(io, '\nPlanSet preview\n');
-  for (const plan of planSet?.plans ?? []) renderPlan(plan, io, '');
-  renderPlan({ target: { label: 'top-level' }, ...planSet }, io, '');
+  for (const [index, plan] of (planSet?.plans ?? []).entries()) renderPlan(plan, io, `#${index + 1} `);
+  const { plans: _plans, ...summary } = planSet ?? {};
+  if (Object.keys(summary).length) renderPlan(summary, io, 'PlanSet summary ');
 }
 
 export async function confirmPlanSet(planSet, io = {}) {
