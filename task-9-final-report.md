@@ -18,13 +18,13 @@ git diff --check
 测试结果：
 
 ```text
-manage-skills tests: 117 passed, 0 failed
+manage-skills tests: 128 passed, 0 failed
 bamhub JavaScript tests: 101 passed, 0 failed
 bamhub project ESM tests: 45 passed, 0 failed
 bamhub skill-layout tests: 11 passed, 0 failed
 ```
 
-合计：`274` 项通过，`0` 失败。既有 Node `MODULE_TYPELESS_PACKAGE_JSON` warning 不影响退出码和测试结果。
+合计：`285` 项通过，`0` 失败。既有 Node `MODULE_TYPELESS_PACKAGE_JSON` warning 不影响退出码和测试结果。
 
 ## 真实 Pod 探针
 

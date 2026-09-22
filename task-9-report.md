@@ -21,7 +21,7 @@ missing target 在 apply 时先以 `missing: true` 的初始 target identity 参
 - RED：新增回归测试在修复前失败，实际 manifest 残留。
 - Focused：`node --test scripts/manage-skills/tests/transaction.test.mjs --test-name-pattern='missing-target recovery removes'` — 32 passed。
 - Related：`node --test scripts/manage-skills/tests/transaction.test.mjs scripts/manage-skills/tests/state.test.mjs scripts/manage-skills/tests/cli.test.mjs` — 69 passed。
-- Full：`node --test tests/*/*.test.js tests/project/*.test.mjs tests/skill-layout.test.mjs scripts/manage-skills/tests/*.test.mjs` — 274 passed。
+- Full：`node --test tests/*/*.test.js tests/project/*.test.mjs tests/skill-layout.test.mjs scripts/manage-skills/tests/*.test.mjs` — 285 passed。
 - Syntax/diff：`node --check scripts/manage-skills/lib/transaction.mjs`, `node --check scripts/manage-skills/tests/transaction.test.mjs`, `git diff --check` — passed。
 
 Full-suite existing Node module-type warnings are pre-existing and do not fail the suite.
