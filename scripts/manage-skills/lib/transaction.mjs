@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { scanBundleSymlinks } from './catalog.mjs';
 import { scanTarget, normalizeRelative, targetPath, linkFingerprint } from './links.mjs';
 import { acquireTargetLock, loadManifest, manifestIdentity, writeManifestAtomic } from './state.mjs';
 
@@ -89,6 +90,11 @@ function sameIdentityFields(actual, expected, fields) {
   return fields.every((field) => actual?.[field] === expected?.[field]);
 }
 
+function inside(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 async function checkTargetSnapshot(plan, snapshot) {
   const target = targetPath(plan.target);
   if (snapshot.missing === true && snapshot.created !== true) {
@@ -114,11 +120,13 @@ async function checkCatalogSnapshot(plan, snapshot) {
   }
 }
 
-async function sourceIdentity(item, snapshot) {
+async function sourceIdentity(item, snapshot, catalogRoot) {
   const actualPath = await fs.realpath(item.sourceDir);
   const stat = await fs.stat(actualPath);
   const skillStat = await fs.lstat(path.join(actualPath, 'SKILL.md'));
-  if (!stat.isDirectory() || !skillStat.isFile() || skillStat.isSymbolicLink() || !sameIdentityFields({ canonicalPath: actualPath, dev: stat.dev, ino: stat.ino }, snapshot, ['canonicalPath', 'dev', 'ino']) || !sameIdentityFields(item.sourceIdentity, snapshot, ['canonicalPath', 'dev', 'ino'])) {
+  const catalogBoundary = await fs.realpath(catalogRoot);
+  const bundleSymlinks = await scanBundleSymlinks(actualPath, catalogBoundary);
+  if (!stat.isDirectory() || !skillStat.isFile() || skillStat.isSymbolicLink() || bundleSymlinks.some(({ target }) => !target || !inside(target, catalogBoundary)) || !sameIdentityFields({ canonicalPath: actualPath, dev: stat.dev, ino: stat.ino }, snapshot, ['canonicalPath', 'dev', 'ino']) || !sameIdentityFields(item.sourceIdentity, snapshot, ['canonicalPath', 'dev', 'ino'])) {
     throw transactionError('SOURCE_IDENTITY_CHANGED', 'source identity changed or source is invalid');
   }
 }
@@ -128,6 +136,17 @@ async function lstatOrNull(file) {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
     throw error;
   });
+}
+
+async function cleanupOwnedQuarantine(directory, token) {
+  const root = await lstatOrNull(directory);
+  if (!root || !root.isDirectory() || root.isSymbolicLink()) return false;
+  const markerPath = path.join(directory, '.manage-skills-quarantine-marker');
+  const marker = await lstatOrNull(markerPath);
+  if (!marker || !marker.isFile() || marker.isSymbolicLink()) return false;
+  if (await fs.readFile(markerPath, 'utf8') !== token) return false;
+  await fs.rm(directory, { recursive: true, force: true });
+  return true;
 }
 
 async function checkLink(item, snapshot, kind) {
@@ -186,13 +205,13 @@ async function recheckPlan(plan, snapshots, manifest) {
   if (manifestFingerprint(manifest) !== snapshots.manifestFingerprint) throw transactionError('MANIFEST_CHANGED', 'manifest changed during transaction');
   await checkTargetSnapshot(plan, snapshots.target);
   await checkCatalogSnapshot(plan, snapshots.catalog);
-  for (const item of plan.desired) await sourceIdentity(item, snapshots.sources.get(item.sourceDir));
+  for (const item of plan.desired) await sourceIdentity(item, snapshots.sources.get(item.sourceDir), plan.catalog.canonicalPath ?? plan.catalog.path);
   for (const item of plan.create) await checkLink(item, snapshots.links.get(item.linkPath), 'create');
   for (const item of plan.remove) {
     await checkLink(item, snapshots.links.get(item.linkPath), 'remove');
     if (!manifestOwns(manifest, item)) throw transactionError('MANIFEST_OWNERSHIP_CHANGED', `manifest ownership changed: ${item.linkPath}`);
     const source = item.manifestEntry?.sourceIdentity;
-    if (source) await sourceIdentity({ sourceDir: source.canonicalPath, sourceIdentity: source }, source);
+    if (source) await sourceIdentity({ sourceDir: source.canonicalPath, sourceIdentity: source }, source, plan.catalog.canonicalPath ?? plan.catalog.path);
   }
 }
 
@@ -240,6 +259,9 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
   let record;
   let oldManifest;
   let quarantineCreated = false;
+  let journalInitialized = false;
+  let quarantine;
+  let quarantineToken;
   let manifestTargetIdentity = plan.target;
   let mutationCount = 0;
   const failPoint = () => {
@@ -250,14 +272,17 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     journal = journalName(stateRoot);
     result.journal = journal;
     oldManifest = await currentManifest(plan, state);
-    const quarantineToken = crypto.randomUUID();
-    const quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${quarantineToken}`);
+    quarantineToken = crypto.randomUUID();
+    quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${quarantineToken}`);
+    record = { version: JOURNAL_VERSION, state: 'prepared', target: manifestTarget(plan.target), catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine, quarantineToken, quarantineCreated: false };
+    await fs.mkdir(stateRoot, { recursive: true });
+    await writeJournal(journal, record);
+    journalInitialized = true;
     const quarantineMarker = path.join(quarantine, '.manage-skills-quarantine-marker');
     await fs.mkdir(quarantine, { recursive: false });
     await fs.writeFile(quarantineMarker, quarantineToken, { flag: 'wx' });
     quarantineCreated = true;
-    record = { version: JOURNAL_VERSION, state: 'prepared', target: manifestTarget(plan.target), catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine, quarantineToken, quarantineCreated: true };
-    await fs.mkdir(stateRoot, { recursive: true });
+    record.quarantineCreated = true;
     await writeJournal(journal, record);
     const snapshots = { target: { ...plan.target, ...(plan.target.parentIdentity ? { parentIdentity: { ...plan.target.parentIdentity } } : {}) }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), manifestFingerprint: manifestFingerprint(oldManifest), sources: new Map(), links: new Map() };
     for (const item of plan.desired) snapshots.sources.set(item.sourceDir, { ...item.sourceIdentity });
@@ -338,6 +363,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     return result;
   } catch (error) {
     result.failed.push(failure(error));
+    if (!journalInitialized && quarantine) await cleanupOwnedQuarantine(quarantine, quarantineToken).catch(() => {});
     if (record) {
       record.state = 'failed';
       record.error = failure(error);
@@ -389,11 +415,6 @@ export async function applyPlanSet(planSet, { state = {}, dryRun = false, before
 
 function journalError(message, details = {}) {
   return transactionError('JOURNAL_MALFORMED', message, details);
-}
-
-function inside(candidate, root) {
-  const relative = path.relative(root, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function absolutePath(value, label) {

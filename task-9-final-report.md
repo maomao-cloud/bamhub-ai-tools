@@ -103,9 +103,11 @@ tool-skill disabled: false
 - 交互式 catalog 缺失时通过 `session.line` 请求路径，并把路径传入 resolver 重新确认/扫描；覆盖 TTY 与 non-TTY 注入测试。
 - 增加 `recover --state-root <path> --journal <path> [--json]`，复用 `recoverJournal`，按 0/1/2 映射成功、恢复失败、参数错误。
 - `validateTarget` 统一使用 `stateRootForTarget` 并传递 env/home；manifest closed schema 校验 kebab、唯一 linkName 与相对路径。
+- transaction apply 在每次 source identity recheck 时重新扫描 bundle nested symlink 的 catalog boundary；quarantine 创建改为初始 journal 落盘后，journal 初始化失败时仅清理 marker-owned quarantine。
+- recover CLI 明确只允许 `--state-root`、`--journal`、`--json`；custom target selector 按实际目录存在状态报告 `exists`。
 - 同步脚本 README 与 manage-skills 计划说明；未修改 maomao-deploy YAML。
 
-本次 final-review focused tests：`123 passed, 0 failed`；全仓库 JavaScript 测试：`270 passed, 0 failed`。
+本次 final-review focused tests：`123 passed, 0 failed`；本轮新增回归测试覆盖 nested bundle symlink、state-root failure、recover 非允许参数与 custom target status。
 
 ## 工作树
 

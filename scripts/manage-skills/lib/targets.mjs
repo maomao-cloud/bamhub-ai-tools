@@ -169,7 +169,9 @@ export async function resolveTargetSelection({ runtimes = [], customPath, select
     if (typeof customPath !== 'string' || !path.isAbsolute(customPath)) {
       throw targetError('UNSAFE_TARGET', 'Custom target must be an absolute path', 'custom target must be absolute');
     }
-    return [{ id: 'custom', label: 'Custom', path: path.normalize(customPath), source: 'custom', exists: false, selectable: true }];
+    const normalizedPath = path.normalize(customPath);
+    const exists = await fs.stat(normalizedPath).then((stat) => stat.isDirectory(), () => false);
+    return [{ id: 'custom', label: 'Custom', path: normalizedPath, source: 'custom', exists, selectable: true }];
   }
 
   const ids = [...new Set(selectedIds)];

@@ -67,6 +67,14 @@ async function runTTY(args, env, answer) {
 
 test.after(async () => Promise.all(tempRoots.map((dir) => fs.rm(dir, { recursive: true, force: true }))));
 
+test('recover rejects apply-only and dry-run flags', async () => {
+  for (const flag of ['--yes', '--non-interactive', '--dry-run']) {
+    const result = await run(['recover', '--state-root', '/tmp/state', '--journal', '/tmp/missing-journal', flag], {});
+    assert.equal(result.code, 2, `${flag}: ${result.stderr}`);
+    assert.match(result.stderr, /only --state-root, --journal, and --json/i);
+  }
+});
+
 test('recover validates arguments and reports recovery failures with exit one', async () => {
   const invalid = await run(['recover', '--state-root', '/tmp/state'], {});
   assert.equal(invalid.code, 2);

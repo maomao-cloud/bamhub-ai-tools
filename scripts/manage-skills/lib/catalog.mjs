@@ -71,6 +71,15 @@ async function realpathInside(candidate, root) {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
+export async function scanBundleSymlinks(directory, root) {
+  const links = await collectSymlinks(directory, path.resolve(root));
+  const results = [];
+  for (const link of links) {
+    results.push({ path: link, target: await fs.realpath(link).catch(() => null) });
+  }
+  return results;
+}
+
 async function collectSymlinks(directory, root, links = [], visited = new Set()) {
   let canonicalDirectory;
   try {

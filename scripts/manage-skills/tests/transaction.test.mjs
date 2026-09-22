@@ -83,6 +83,39 @@ test('quarantines only manifest-owned removals and keeps quarantine on failure',
   assert.equal(await fs.lstat(report.targets[0].journal).then(() => true, () => false), true);
 });
 
+test('rechecks nested bundle symlinks before applying', async () => {
+  const f = await fixture();
+  const outside = path.join(f.root, 'outside');
+  await fs.mkdir(outside);
+  await fs.symlink(outside, path.join(f.sourceDir, 'resources'), 'dir');
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].applied.length, 0);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
+test('state-root and journal-writer failures leave no orphan quarantine or user directory deletion', async () => {
+  const f = await fixture();
+  const badStateRoot = path.join(f.root, 'state-file');
+  await fs.writeFile(badStateRoot, 'user data');
+  const failedState = await applyPlanSet(f.planSet, { state: { stateRoot: badStateRoot } });
+  assert.equal(failedState.exitCode, 1);
+  assert.equal(await fs.readFile(badStateRoot, 'utf8'), 'user data');
+
+  const readOnlyState = path.join(f.root, 'read-only-state');
+  await fs.mkdir(readOnlyState);
+  await fs.chmod(readOnlyState, 0o555);
+  let failedWriter;
+  try {
+    failedWriter = await applyPlanSet(f.planSet, { state: { stateRoot: readOnlyState } });
+  } finally {
+    await fs.chmod(readOnlyState, 0o755);
+  }
+  assert.equal(failedWriter.exitCode, 1);
+  assert.deepEqual((await fs.readdir(path.dirname(f.targetRoot))).filter((name) => name.includes('quarantine')), []);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
 test('source replacement is a conflict and never overwrites the target link', async () => {
   const f = await fixture();
   const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeMutation: async () => {

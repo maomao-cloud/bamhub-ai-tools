@@ -45,13 +45,13 @@ function parseArgs(argv) {
   }
   if (options.target !== undefined && options.runtimes.length) throw cliError('TARGET_SELECTOR_CONFLICT', '--target and --runtime are mutually exclusive');
   if (options['disable-all'] && options.enables.length) throw cliError('DESIRED_STATE_CONFLICT', '--enable and --disable-all are mutually exclusive');
-  if (command !== 'apply' && options.yes) throw cliError('INVALID_ARGUMENT', '--yes is only valid for apply');
+  if (command !== 'apply' && options.yes && command !== 'recover') throw cliError('INVALID_ARGUMENT', '--yes is only valid for apply');
   if (command === 'status' && (options.enables.length || options['disable-all'])) throw cliError('INVALID_ARGUMENT', 'status does not accept desired-state options');
   if (command === 'plan' && options['disable-all'] === undefined && options.enables.length === 0) throw cliError('DESIRED_STATE_REQUIRED', 'plan requires --enable or --disable-all');
   if (command === 'apply' && options['non-interactive'] && !options.enables.length && !options['disable-all']) throw cliError('DESIRED_STATE_REQUIRED', 'apply requires --enable, --disable-all, or interactive selection');
   if (command === 'apply' && options['non-interactive'] && !options.yes) throw cliError('CONFIRMATION_REQUIRED', '--non-interactive apply requires --yes');
   if (command === 'recover' && (!options['state-root'] || !options.journal)) throw cliError('INVALID_ARGUMENT', 'recover requires --state-root and --journal');
-  if (command === 'recover' && (options.catalog || options.target || options.runtimes.length || options.enables.length || options['disable-all'])) throw cliError('INVALID_ARGUMENT', 'recover accepts only --state-root, --journal, and --json');
+  if (command === 'recover' && (options.catalog || options.target || options.runtimes.length || options.enables.length || options['disable-all'] || options.yes || options['non-interactive'] || options['dry-run'])) throw cliError('INVALID_ARGUMENT', 'recover accepts only --state-root, --journal, and --json');
   return options;
 }
 

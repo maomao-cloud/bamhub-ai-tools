@@ -141,6 +141,14 @@ test('validateTarget rejects project targets, Git worktree targets, symlink ance
   await assertTargetRejected({ targetPath: path.join(root, 'missing', 'skills'), catalogRoot: catalog, mode: 'custom' }, 'parent');
 });
 
+test('resolveTargetSelection reports the actual custom target existence', async () => {
+  const root = await tempDir();
+  const customPath = path.join(root, 'custom', 'skills');
+  await fs.mkdir(customPath, { recursive: true });
+  const selected = await resolveTargetSelection({ customPath });
+  assert.equal(selected[0].exists, true);
+});
+
 test('resolveTargetSelection supports custom targets, repeated runtimes, all, and conflict guard', async () => {
   const runtimes = [
     { id: 'dsh', label: 'DSH', path: '/dsh/skills', source: 'DSH_HOME', exists: false, selectable: true },
