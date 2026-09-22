@@ -12,35 +12,88 @@ function stateError(code, message, details = {}) {
   return error;
 }
 
+function isPlainObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function assertPlainJson(value, label) {
+  if (value === undefined || typeof value === 'function' || typeof value === 'symbol' || typeof value === 'bigint') {
+    throw stateError('IDENTITY_INVALID', `${label} must contain only plain JSON values`);
+  }
+  if (value === null) return;
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw stateError('IDENTITY_INVALID', `${label} must contain only finite JSON numbers`);
+  }
+  if (typeof value === 'object') {
+    if (Array.isArray(value)) {
+      for (const item of value) assertPlainJson(item, label);
+    } else {
+      if (!isPlainObject(value)) throw stateError('IDENTITY_INVALID', `${label} must contain only plain JSON values`);
+      for (const [key, item] of Object.entries(value)) assertPlainJson(item, `${label}.${key}`);
+    }
+  }
+}
+
 function stable(value) {
+  assertPlainJson(value, 'stable input');
   if (Array.isArray(value)) return value.map(stable);
   if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => [key, stable(value[key])]));
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])]));
   }
   return value;
 }
 
 function digest(value) {
-  return crypto.createHash('sha256').update(JSON.stringify(stable(value))).digest('hex');
+  const json = JSON.stringify(stable(value));
+  if (json === undefined) throw stateError('IDENTITY_INVALID', 'identity must be representable as plain JSON');
+  return crypto.createHash('sha256').update(json).digest('hex');
+}
+
+function identityCanonicalPath(identity, label) {
+  const canonicalPath = identity?.canonicalPath ?? identity?.realPath;
+  if (!isPlainObject(identity) || typeof canonicalPath !== 'string' || !path.isAbsolute(canonicalPath)) {
+    throw stateError('IDENTITY_INVALID', `${label} must include an absolute canonicalPath`);
+  }
+  return canonicalPath;
+}
+
+function validIdentity(identity, label, { git = false } = {}) {
+  assertPlainJson(identity, label);
+  const canonicalPath = identityCanonicalPath(identity, label);
+  if (!Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0) {
+    throw stateError('IDENTITY_INVALID', `${label} must include non-negative integer dev and ino`);
+  }
+  if (git) {
+    for (const key of ['gitRemote', 'gitCommit']) {
+      if (key in identity && typeof identity[key] !== 'string') {
+        throw stateError('IDENTITY_INVALID', `${label}.${key} must be a string when present`);
+      }
+    }
+  }
+  return canonicalPath;
 }
 
 function targetFields(identity) {
+  const canonicalPath = validIdentity(identity, 'target identity');
   return {
-    path: identity?.path,
-    realPath: identity?.realPath,
-    dev: identity?.dev,
-    ino: identity?.ino,
+    ...(identity.path === undefined ? {} : { path: identity.path }),
+    canonicalPath,
+    dev: identity.dev,
+    ino: identity.ino,
   };
 }
 
 function catalogFields(identity) {
+  const canonicalPath = validIdentity(identity, 'catalog identity', { git: true });
   return {
-    path: identity?.path ?? identity?.canonicalPath,
-    canonicalPath: identity?.canonicalPath,
-    dev: identity?.dev,
-    ino: identity?.ino,
-    gitRemote: identity?.gitRemote,
-    gitCommit: identity?.gitCommit,
+    ...(identity.path === undefined ? {} : { path: identity.path }),
+    canonicalPath,
+    dev: identity.dev,
+    ino: identity.ino,
+    ...(identity.gitRemote === undefined ? {} : { gitRemote: identity.gitRemote }),
+    ...(identity.gitCommit === undefined ? {} : { gitCommit: identity.gitCommit }),
   };
 }
 
@@ -60,15 +113,43 @@ function sameIdentity(actual, expected, fields) {
   return fields.every((field) => actual?.[field] === expected?.[field]);
 }
 
+function validateManifestIdentity(value, label, { git = false } = {}) {
+  if (!isPlainObject(value)) throw stateError('MANIFEST_MALFORMED', `${label} must be an object`);
+  try {
+    const normalized = git ? catalogFields(value) : targetFields(value);
+    const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino']);
+    if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('unknown field');
+    if (value.path !== undefined && (typeof value.path !== 'string' || !path.isAbsolute(value.path))) throw new Error('invalid path');
+    return normalized;
+  } catch (error) {
+    if (error.code === 'MANIFEST_MALFORMED') throw error;
+    throw stateError('MANIFEST_MALFORMED', `${label} is invalid`, { cause: error });
+  }
+}
+
+function validateSourceIdentity(value) {
+  if (!isPlainObject(value)) throw stateError('MANIFEST_MALFORMED', 'manifest link sourceIdentity is invalid');
+  try {
+    validIdentity(value, 'source identity');
+    if (Object.keys(value).some((key) => !['canonicalPath', 'dev', 'ino'].includes(key))) throw new Error('unknown field');
+  } catch (error) {
+    throw stateError('MANIFEST_MALFORMED', 'manifest link sourceIdentity is invalid', { cause: error });
+  }
+}
+
 function validateManifest(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw stateError('MANIFEST_MALFORMED', 'manifest must be an object');
-  if (value.version !== VERSION || !value.target || !value.catalog || !Array.isArray(value.links)) {
+  if (!isPlainObject(value) || value.version !== VERSION || !isPlainObject(value.target) || !isPlainObject(value.catalog) || !Array.isArray(value.links)) {
     throw stateError('MANIFEST_MALFORMED', 'manifest must contain version 1, target, catalog, and links');
   }
+  validateManifestIdentity(value.target, 'manifest target');
+  validateManifestIdentity(value.catalog, 'manifest catalog', { git: true });
   for (const link of value.links) {
-    if (!link || typeof link !== 'object' || typeof link.linkName !== 'string' || typeof link.sourceRelative !== 'string' || typeof link.relativeTarget !== 'string' || !link.sourceIdentity) {
+    if (!isPlainObject(link) || Object.keys(link).some((key) => !['linkName', 'sourceRelative', 'relativeTarget', 'createdAt', 'sourceIdentity'].includes(key)) ||
+      typeof link.linkName !== 'string' || typeof link.sourceRelative !== 'string' || typeof link.relativeTarget !== 'string' ||
+      typeof link.createdAt !== 'string' || Number.isNaN(Date.parse(link.createdAt))) {
       throw stateError('MANIFEST_MALFORMED', 'manifest link entry is invalid');
     }
+    validateSourceIdentity(link.sourceIdentity);
   }
   return value;
 }
@@ -84,7 +165,7 @@ export function stateRootForTarget({ runtimeId, env = process.env, home = os.hom
 }
 
 export function manifestIdentity({ catalogIdentity, targetIdentity } = {}) {
-  return digest({ catalog: catalogFields(catalogIdentity), target: targetFields(targetIdentity) });
+  return digest({ catalog: catalogIdentity === undefined ? null : catalogFields(catalogIdentity), target: targetFields(targetIdentity) });
 }
 
 export async function loadManifest({ stateRoot, targetIdentity } = {}) {
@@ -93,8 +174,9 @@ export async function loadManifest({ stateRoot, targetIdentity } = {}) {
   try {
     raw = await fs.readFile(file, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') throw stateError('MANIFEST_MISSING', `Manifest not found: ${file}`, { path: file });
-    throw stateError('STATE_UNAVAILABLE', `Unable to read state: ${error.message}`, { cause: error });
+    if (error.code === 'ENOENT') throw stateError('MANIFEST_MISSING', `Manifest not found: ${file}`, { path: file });
+    if (error.code === 'ENOTDIR') throw stateError('STATE_UNAVAILABLE', `State root is not a directory: ${path.resolve(stateRoot)}`, { cause: error, path: file });
+    throw stateError('STATE_UNAVAILABLE', `Unable to read state: ${error.message}`, { cause: error, path: file });
   }
   let manifest;
   try {
@@ -103,12 +185,16 @@ export async function loadManifest({ stateRoot, targetIdentity } = {}) {
     throw stateError('MANIFEST_MALFORMED', `Manifest is not valid JSON: ${file}`, { cause: error, path: file });
   }
   validateManifest(manifest);
-  if (!sameIdentity(manifest.target, targetIdentity, ['path', 'realPath', 'dev', 'ino'])) {
+  const expectedTarget = targetFields(targetIdentity);
+  if (!sameIdentity(manifest.target, expectedTarget, ['canonicalPath', 'dev', 'ino']) || (expectedTarget.path !== undefined && manifest.target.path !== expectedTarget.path)) {
     throw stateError('MANIFEST_TARGET_MISMATCH', 'Manifest target identity does not match target', { path: file });
   }
   const expectedCatalog = targetIdentity?.catalogIdentity ?? targetIdentity?.catalog;
-  if (expectedCatalog && !sameIdentity(manifest.catalog, catalogFields(expectedCatalog), ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'])) {
-    throw stateError('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog', { path: file });
+  if (expectedCatalog) {
+    const catalog = catalogFields(expectedCatalog);
+    if (!sameIdentity(manifest.catalog, catalog, ['canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit']) || (catalog.path !== undefined && manifest.catalog.path !== catalog.path)) {
+      throw stateError('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog', { path: file });
+    }
   }
   return manifest;
 }
@@ -117,12 +203,16 @@ export async function writeManifestAtomic({ stateRoot, targetIdentity, manifest 
   const root = path.resolve(stateRoot);
   const file = manifestPath(root, targetIdentity);
   validateManifest(manifest);
-  if (!sameIdentity(manifest.target, targetIdentity, ['path', 'realPath', 'dev', 'ino'])) {
+  const expectedTarget = targetFields(targetIdentity);
+  if (!sameIdentity(manifest.target, expectedTarget, ['canonicalPath', 'dev', 'ino']) || (expectedTarget.path !== undefined && manifest.target.path !== expectedTarget.path)) {
     throw stateError('MANIFEST_TARGET_MISMATCH', 'Manifest target identity does not match target');
   }
   const expectedCatalog = targetIdentity?.catalogIdentity ?? targetIdentity?.catalog;
-  if (expectedCatalog && !sameIdentity(manifest.catalog, catalogFields(expectedCatalog), ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'])) {
-    throw stateError('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog');
+  if (expectedCatalog) {
+    const catalog = catalogFields(expectedCatalog);
+    if (!sameIdentity(manifest.catalog, catalog, ['canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit']) || (catalog.path !== undefined && manifest.catalog.path !== catalog.path)) {
+      throw stateError('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog');
+    }
   }
   try {
     await fs.mkdir(root, { recursive: true });
@@ -140,29 +230,54 @@ export async function writeManifestAtomic({ stateRoot, targetIdentity, manifest 
   }
 }
 
+function metadataError(code, message, directory, metadata) {
+  const details = { path: directory };
+  if (metadata && typeof metadata.owner === 'string') details.owner = metadata.owner;
+  if (metadata && typeof metadata.acquiredAt === 'string') details.acquiredAt = metadata.acquiredAt;
+  return stateError(code, message, details);
+}
+
+async function readLockMetadata(directory) {
+  let metadata;
+  try {
+    metadata = JSON.parse(await fs.readFile(path.join(directory, 'owner.json'), 'utf8'));
+  } catch (error) {
+    throw metadataError('LOCK_METADATA_INVALID', `Target lock metadata is missing or unreadable: ${directory}`, directory);
+  }
+  if (!isPlainObject(metadata) || typeof metadata.owner !== 'string' || !metadata.owner || typeof metadata.token !== 'string' || !metadata.token || typeof metadata.acquiredAt !== 'string' || Number.isNaN(Date.parse(metadata.acquiredAt))) {
+    throw metadataError('LOCK_METADATA_INVALID', `Target lock metadata is invalid: ${directory}`, directory, metadata);
+  }
+  return metadata;
+}
+
+async function ensureDirectory(root, message) {
+  try {
+    await fs.mkdir(root, { recursive: true });
+  } catch (error) {
+    if (error.code === 'EEXIST' || error.code === 'ENOTDIR') throw stateError('STATE_UNAVAILABLE', `${message}: ${error.message}`, { cause: error });
+    throw error;
+  }
+  try {
+    if (!(await fs.stat(root)).isDirectory()) throw new Error('not a directory');
+  } catch (error) {
+    throw stateError('STATE_UNAVAILABLE', `${message}: ${error.message}`, { cause: error });
+  }
+}
+
 export async function acquireTargetLock({ stateRoot, targetIdentity } = {}) {
   const root = path.resolve(stateRoot);
   const directory = lockPath(root, targetIdentity);
   const owner = `${os.hostname()}:${process.pid}:${crypto.randomUUID()}`;
+  const token = crypto.randomUUID();
   const acquiredAt = new Date().toISOString();
+  await ensureDirectory(root, 'Unable to acquire target lock');
   try {
-    await fs.mkdir(root, { recursive: true });
     await fs.mkdir(directory);
-    try {
-      await fs.writeFile(path.join(directory, 'owner.json'), JSON.stringify({ owner, acquiredAt }) + '\n', { flag: 'wx' });
-    } catch (error) {
-      await fs.rm(directory, { recursive: true, force: true });
-      throw error;
-    }
+    await fs.writeFile(path.join(directory, 'owner.json'), JSON.stringify({ owner, token, acquiredAt }) + '\n', { flag: 'wx' });
   } catch (error) {
     if (error.code === 'EEXIST') {
-      let metadata = {};
-      try { metadata = JSON.parse(await fs.readFile(path.join(directory, 'owner.json'), 'utf8')); } catch { /* lock metadata may be unavailable */ }
-      throw stateError('TARGET_LOCKED', `Target lock is held${metadata.owner ? ` by ${metadata.owner}` : ''}`, {
-        path: directory,
-        owner: metadata.owner,
-        acquiredAt: metadata.acquiredAt,
-      });
+      const metadata = await readLockMetadata(directory);
+      throw metadataError('TARGET_LOCKED', `Target lock is held by ${metadata.owner}`, directory, metadata);
     }
     if (error.code === 'ENOTDIR' || error.code === 'EACCES' || error.code === 'EPERM') throw stateError('STATE_UNAVAILABLE', `Unable to acquire target lock: ${error.message}`, { cause: error });
     throw error;
@@ -171,11 +286,14 @@ export async function acquireTargetLock({ stateRoot, targetIdentity } = {}) {
   return {
     path: directory,
     owner,
+    token,
     acquiredAt,
     async release() {
       if (released) return;
-      released = true;
+      const metadata = await readLockMetadata(directory);
+      if (metadata.token !== token) throw metadataError('TARGET_LOCKED', `Target lock is held by ${metadata.owner}`, directory, metadata);
       await fs.rm(directory, { recursive: true, force: false });
+      released = true;
     },
   };
 }

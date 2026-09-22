@@ -22,8 +22,8 @@ async function tempDir() {
 
 function identities(root) {
   return {
-    target: { path: path.join(root, 'skills'), realPath: path.join(root, 'skills'), dev: 1, ino: 2 },
-    catalog: { path: path.join(root, 'catalog'), dev: 3, ino: 4, gitRemote: 'origin', gitCommit: 'abc123' },
+    target: { path: path.join(root, 'skills'), canonicalPath: path.join(root, 'skills'), dev: 1, ino: 2 },
+    catalog: { path: path.join(root, 'catalog'), canonicalPath: path.join(root, 'catalog'), dev: 3, ino: 4, gitRemote: 'origin', gitCommit: 'abc123' },
   };
 }
 
@@ -96,15 +96,16 @@ test('manifest writes replace atomically and leave no temporary file', async () 
 });
 
 test('manifest identity is stable and changes when catalog or target identity changes', () => {
-  const first = manifestIdentity({ catalogIdentity: { path: '/catalog', dev: 1, ino: 2 }, targetIdentity: { path: '/target', dev: 3, ino: 4 } });
-  assert.equal(first, manifestIdentity({ catalogIdentity: { path: '/catalog', dev: 1, ino: 2 }, targetIdentity: { path: '/target', dev: 3, ino: 4 } }));
-  assert.notEqual(first, manifestIdentity({ catalogIdentity: { path: '/other', dev: 1, ino: 2 }, targetIdentity: { path: '/target', dev: 3, ino: 4 } }));
+  const first = manifestIdentity({ catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 }, targetIdentity: { path: '/target', canonicalPath: '/target', dev: 3, ino: 4 } });
+  assert.equal(first, manifestIdentity({ catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 }, targetIdentity: { path: '/target', canonicalPath: '/target', dev: 3, ino: 4 } }));
+  assert.notEqual(first, manifestIdentity({ catalogIdentity: { path: '/other', canonicalPath: '/other', dev: 1, ino: 2 }, targetIdentity: { path: '/target', canonicalPath: '/target', dev: 3, ino: 4 } }));
 });
 
 test('target lock is exclusive, reports owner and time, and releases without stealing stale locks', async () => {
   const fixture = await manifestFixture();
   const first = await acquireTargetLock(fixture);
   assert.equal(typeof first.owner, 'string');
+  assert.equal(typeof first.token, 'string');
   assert.equal(typeof first.acquiredAt, 'string');
   await assert.rejects(acquireTargetLock(fixture), (error) => {
     assert.equal(error.code, 'TARGET_LOCKED');
@@ -118,12 +119,12 @@ test('target lock is exclusive, reports owner and time, and releases without ste
   await assert.doesNotReject(acquireTargetLock(fixture).then((handle) => handle.release()));
 });
 
- test('a pre-existing stale lock still fails until explicitly removed', async () => {
+test('a pre-existing stale lock still fails until explicitly removed', async () => {
   const fixture = await manifestFixture();
   await fs.mkdir(fixture.stateRoot, { recursive: true });
   const lock = path.join(fixture.stateRoot, `target-${manifestIdentity({ targetIdentity: fixture.targetIdentity }).slice(0, 32)}.lock`);
   await fs.mkdir(lock);
-  await fs.writeFile(path.join(lock, 'owner.json'), JSON.stringify({ owner: 'old-owner', acquiredAt: '2000-01-01T00:00:00.000Z' }));
+  await fs.writeFile(path.join(lock, 'owner.json'), JSON.stringify({ owner: 'old-owner', token: 'old-token', acquiredAt: '2000-01-01T00:00:00.000Z' }));
   await assert.rejects(acquireTargetLock(fixture), (error) => error.code === 'TARGET_LOCKED' && error.owner === 'old-owner');
   await fs.rm(lock, { recursive: true });
 });
@@ -131,5 +132,51 @@ test('target lock is exclusive, reports owner and time, and releases without ste
 test('manifest state is unavailable when state root is a file', async () => {
   const fixture = await manifestFixture();
   await fs.writeFile(fixture.stateRoot, 'not a directory');
-  await assert.rejects(writeManifestAtomic(fixture), (error) => error.code === 'STATE_UNAVAILABLE' || error.code === 'ENOTDIR');
+  await assert.rejects(loadManifest(fixture), (error) => error.code === 'STATE_UNAVAILABLE');
+  await assert.rejects(acquireTargetLock(fixture), (error) => error.code === 'STATE_UNAVAILABLE');
+  await assert.rejects(writeManifestAtomic(fixture), (error) => error.code === 'STATE_UNAVAILABLE');
+});
+
+test('manifest schema rejects missing or invalid identities, links, versions, and git metadata', async () => {
+  const fixture = await manifestFixture();
+  await writeManifestAtomic(fixture);
+  const files = await fs.readdir(fixture.stateRoot);
+  const manifestPath = path.join(fixture.stateRoot, files.find((file) => file.endsWith('.json')));
+  const invalid = [
+    { ...fixture.manifest, version: 2 },
+    { ...fixture.manifest, target: { ...fixture.manifest.target, canonicalPath: undefined } },
+    { ...fixture.manifest, catalog: { ...fixture.manifest.catalog, ino: 1.5 } },
+    { ...fixture.manifest, catalog: { ...fixture.manifest.catalog, gitCommit: 42 } },
+    { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], createdAt: undefined }] },
+    { ...fixture.manifest, links: [{ ...fixture.manifest.links[0], sourceIdentity: { canonicalPath: '/x', dev: 1 } }] },
+  ];
+  for (const manifest of invalid) {
+    await fs.writeFile(manifestPath, JSON.stringify(manifest));
+    await assert.rejects(loadManifest(fixture), (error) => error.code === 'MANIFEST_MALFORMED');
+  }
+});
+
+test('manifest identity rejects non-plain JSON and incomplete identities', () => {
+  assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', canonicalPath: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2, extra: new Date() } }), (error) => error.code === 'IDENTITY_INVALID');
+  assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 } }), (error) => error.code === 'IDENTITY_INVALID');
+});
+
+test('lock release never removes a lock with a different token', async () => {
+  const fixture = await manifestFixture();
+  const first = await acquireTargetLock(fixture);
+  const lockMetadata = path.join(first.path, 'owner.json');
+  const replacement = { owner: 'new-owner', token: 'new-token', acquiredAt: '2026-09-22T00:00:00.000Z' };
+  await fs.writeFile(lockMetadata, JSON.stringify(replacement));
+  await assert.rejects(first.release(), (error) => error.code === 'TARGET_LOCKED' && error.owner === replacement.owner && error.acquiredAt === replacement.acquiredAt);
+  assert.equal((await fs.stat(first.path)).isDirectory(), true);
+  await fs.rm(first.path, { recursive: true });
+});
+
+test('corrupt or missing lock metadata is diagnosed without undefined details', async () => {
+  const fixture = await manifestFixture();
+  const first = await acquireTargetLock(fixture);
+  await fs.rm(path.join(first.path, 'owner.json'));
+  await assert.rejects(acquireTargetLock(fixture), (error) => error.code === 'LOCK_METADATA_INVALID' && !('owner' in error) && !('acquiredAt' in error));
+  await assert.rejects(first.release(), (error) => error.code === 'LOCK_METADATA_INVALID' && !('owner' in error) && !('acquiredAt' in error));
+  await fs.rm(first.path, { recursive: true });
 });
