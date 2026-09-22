@@ -166,6 +166,13 @@ test('manifest identity rejects non-plain JSON and incomplete identities', () =>
   assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 } }), (error) => error.code === 'IDENTITY_INVALID');
 });
 
+test('missing target identity is explicit, stable, and lockable without fake dev or ino', async () => {
+  const fixture = await manifestFixture();
+  const missing = { path: fixture.ids.target.path, canonicalPath: fixture.ids.target.path, dev: null, ino: null, missing: true, catalogIdentity: fixture.ids.catalog };
+  assert.equal(manifestIdentity({ targetIdentity: missing }), manifestIdentity({ targetIdentity: { ...missing } }));
+  await assert.doesNotReject(acquireTargetLock({ stateRoot: fixture.stateRoot, targetIdentity: missing }).then((handle) => handle.release()));
+});
+
 test('lock release never removes a replacement lock installed after token validation', async () => {
   const fixture = await manifestFixture();
   const first = await acquireTargetLock(fixture);

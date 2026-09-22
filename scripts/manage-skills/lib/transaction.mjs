@@ -52,7 +52,7 @@ function stateRootFor(plan, state) {
 }
 
 function manifestTarget(identity) {
-  return { ...(identity.path === undefined ? {} : { path: identity.path }), canonicalPath: identity.canonicalPath ?? identity.realPath, dev: identity.dev, ino: identity.ino };
+  return { ...(identity.path === undefined ? {} : { path: identity.path }), canonicalPath: identity.canonicalPath ?? identity.realPath, dev: identity.dev, ino: identity.ino, ...(identity.missing === undefined ? {} : { missing: identity.missing }) };
 }
 
 function manifestCatalog(identity) {
@@ -90,8 +90,19 @@ function sameIdentityFields(actual, expected, fields) {
 }
 
 async function checkTargetSnapshot(plan, snapshot) {
-  const actual = await identityAt(targetPath(plan.target), 'target');
-  if (!sameIdentityFields(actual, snapshot, ['canonicalPath', 'dev', 'ino']) || !sameIdentityFields(plan.target, snapshot, ['path', 'canonicalPath', 'dev', 'ino'])) {
+  const target = targetPath(plan.target);
+  if (snapshot.missing === true && snapshot.created !== true) {
+    const current = await lstatOrNull(target);
+    if (current) throw transactionError('TARGET_IDENTITY_CHANGED', 'missing target appeared before creation');
+    if (snapshot.parentIdentity) {
+      const parent = await identityAt(path.dirname(target), 'target parent');
+      if (!sameIdentityFields(parent, snapshot.parentIdentity, ['canonicalPath', 'dev', 'ino'])) throw transactionError('TARGET_IDENTITY_CHANGED', 'target parent identity changed');
+    }
+    return;
+  }
+  const actual = await identityAt(target, 'target');
+  if (!sameIdentityFields(actual, snapshot, ['canonicalPath', 'dev', 'ino'])) throw transactionError('TARGET_IDENTITY_CHANGED', 'target identity changed');
+  if (snapshot.created !== true && !sameIdentityFields(plan.target, snapshot, ['path', 'canonicalPath', 'dev', 'ino'])) {
     throw transactionError('TARGET_IDENTITY_CHANGED', 'target identity changed');
   }
 }
@@ -145,7 +156,7 @@ async function checkLink(item, snapshot, kind) {
   return { dev: current.dev, ino: current.ino, type: 'symlink', linkText };
 }
 
-function manifestForPlan(plan) {
+function manifestForPlan(plan, targetIdentity = plan.target) {
   const links = plan.desired.map((item) => ({
     linkName: item.linkName,
     sourceRelative: item.sourceRelative,
@@ -153,7 +164,7 @@ function manifestForPlan(plan) {
     sourceIdentity: { canonicalPath: item.sourceIdentity.canonicalPath, dev: item.sourceIdentity.dev, ino: item.sourceIdentity.ino },
     createdAt: new Date().toISOString(),
   }));
-  return { version: 1, target: manifestTarget(plan.target), catalog: manifestCatalog(plan.catalog), links };
+  return { version: 1, target: manifestTarget(targetIdentity), catalog: manifestCatalog(plan.catalog), links };
 }
 
 function planFingerprint(plan) {
@@ -189,7 +200,8 @@ export async function verifyPlan(plan, { manifest } = {}) {
   const mismatches = [];
   let states;
   try {
-    states = await scanTarget({ targetIdentity: plan.target, catalog: { root: plan.catalog.canonicalPath, identity: plan.catalog, skills: plan.desired.map((item) => ({ ...item, relativeSource: item.sourceRelative, skillFile: path.join(item.sourceDir, 'SKILL.md') })) }, manifest });
+    const verificationTarget = plan.target.missing === true && manifest?.target ? { ...plan.target, ...manifest.target, path: targetPath(plan.target), missing: false } : plan.target;
+    states = await scanTarget({ targetIdentity: verificationTarget, catalog: { root: plan.catalog.canonicalPath, identity: plan.catalog, skills: plan.desired.map((item) => ({ ...item, relativeSource: item.sourceRelative, skillFile: path.join(item.sourceDir, 'SKILL.md') })) }, manifest });
   } catch (error) {
     return { ok: false, mismatches: [{ code: error.code ?? 'VERIFY_FAILED', message: error.message }] };
   }
@@ -204,13 +216,9 @@ export async function verifyPlan(plan, { manifest } = {}) {
   return { ok: mismatches.length === 0, mismatches };
 }
 
-async function manifestPathFor(stateRoot, plan) {
-  return path.join(path.resolve(stateRoot), `target-${manifestIdentity({ targetIdentity: plan.target, catalogIdentity: plan.catalog }).slice(0, 32)}.json`);
-}
-
-async function restoreOldManifest(stateRoot, plan, oldManifest) {
-  const file = await manifestPathFor(stateRoot, plan);
-  if (oldManifest) await writeManifestAtomic({ stateRoot, targetIdentity: { ...plan.target, catalogIdentity: plan.catalog }, manifest: oldManifest });
+async function restoreOldManifest(stateRoot, plan, oldManifest, targetIdentity = plan.target) {
+  const file = path.join(path.resolve(stateRoot), `target-${manifestIdentity({ targetIdentity, catalogIdentity: plan.catalog }).slice(0, 32)}.json`);
+  if (oldManifest) await writeManifestAtomic({ stateRoot, targetIdentity: { ...targetIdentity, catalogIdentity: plan.catalog }, manifest: oldManifest });
   else await fs.rm(file, { force: true });
 }
 
@@ -225,6 +233,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
   let record;
   let oldManifest;
   let quarantineCreated = false;
+  let manifestTargetIdentity = plan.target;
   let mutationCount = 0;
   const failPoint = () => {
     if (Number.isInteger(state.failAfter) && mutationCount >= state.failAfter) throw transactionError('INJECTED_FAILURE', 'injected transaction failure');
@@ -240,10 +249,10 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     await fs.mkdir(quarantine, { recursive: false });
     await fs.writeFile(quarantineMarker, quarantineToken, { flag: 'wx' });
     quarantineCreated = true;
-    record = { version: JOURNAL_VERSION, state: 'prepared', target: plan.target, catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine, quarantineToken, quarantineCreated: true };
+    record = { version: JOURNAL_VERSION, state: 'prepared', target: manifestTarget(plan.target), catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine, quarantineToken, quarantineCreated: true };
     await fs.mkdir(stateRoot, { recursive: true });
     await writeJournal(journal, record);
-    const snapshots = { target: { ...plan.target }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), manifestFingerprint: manifestFingerprint(oldManifest), sources: new Map(), links: new Map() };
+    const snapshots = { target: { ...plan.target, ...(plan.target.parentIdentity ? { parentIdentity: { ...plan.target.parentIdentity } } : {}) }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), manifestFingerprint: manifestFingerprint(oldManifest), sources: new Map(), links: new Map() };
     for (const item of plan.desired) snapshots.sources.set(item.sourceDir, { ...item.sourceIdentity });
     for (const item of plan.remove) {
       const current = await lstatOrNull(item.linkPath);
@@ -253,6 +262,21 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     await recheckPlan(plan, snapshots, oldManifest);
     record.state = 'mutating';
     await writeJournal(journal, record);
+    if (plan.target.missing === true) {
+      const targetCreate = { type: 'target-create', targetPath: targetPath(plan.target), status: 'pending' };
+      record.operations.push(targetCreate);
+      await writeJournal(journal, record);
+      await fs.mkdir(targetCreate.targetPath);
+      const createdTarget = { path: targetCreate.targetPath, ...(await identityAt(targetCreate.targetPath, 'target')), missing: false };
+      targetCreate.identity = createdTarget;
+      targetCreate.status = 'done';
+      manifestTargetIdentity = createdTarget;
+      snapshots.target = { ...createdTarget, created: true };
+      await writeJournal(journal, record);
+      mutationCount += 1;
+      result.applied.push(targetCreate.targetPath);
+      failPoint();
+    }
     for (const item of plan.create) {
       await recheckPlan(plan, snapshots, await currentManifest(plan, state));
       const operation = { type: 'create', linkPath: item.linkPath, sourceDir: item.sourceDir, status: 'pending' };
@@ -283,12 +307,12 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       await writeJournal(journal, record);
       failPoint();
     }
-    const nextManifest = manifestForPlan(plan);
+    const nextManifest = manifestForPlan(plan, manifestTargetIdentity);
     if (beforeManifest) await beforeManifest(plan, nextManifest);
     const currentBeforeWrite = await currentManifest(plan, state);
     await recheckPlan(plan, snapshots, currentBeforeWrite);
     record.manifest = nextManifest;
-    await writeManifestAtomic({ stateRoot, targetIdentity: { ...plan.target, catalogIdentity: plan.catalog }, manifest: nextManifest });
+    await writeManifestAtomic({ stateRoot, targetIdentity: { ...manifestTargetIdentity, catalogIdentity: plan.catalog }, manifest: nextManifest });
     record.state = 'manifest-written';
     await writeJournal(journal, record);
     if (beforeVerify) await beforeVerify(plan, nextManifest);
@@ -311,7 +335,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       record.state = 'failed';
       record.error = failure(error);
       try {
-        if (record.manifest && record.state !== 'committed') await restoreOldManifest(stateRoot, plan, oldManifest);
+        if (record.manifest && record.state !== 'committed') await restoreOldManifest(stateRoot, plan, oldManifest, manifestTargetIdentity);
       } catch (restoreError) {
         record.recoveryError = failure(restoreError);
       }
@@ -379,9 +403,9 @@ function onlyFields(value, allowed, label) {
 }
 
 function validateJournalIdentity(identity, label, git = false) {
-  const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino']);
+  const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino', 'missing']);
   onlyFields(identity, allowed, label);
-  if (typeof identity.canonicalPath !== 'string' || !path.isAbsolute(identity.canonicalPath) || !Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0) throw journalError(`${label} is incomplete`);
+  if (typeof identity.canonicalPath !== 'string' || !path.isAbsolute(identity.canonicalPath) || (identity.missing === true ? identity.dev !== null || identity.ino !== null : !Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0)) throw journalError(`${label} is incomplete`);
   if ('path' in identity && (typeof identity.path !== 'string' || !path.isAbsolute(identity.path))) throw journalError(`${label}.path is invalid`);
   for (const field of git ? ['gitRemote', 'gitCommit'] : []) if (field in identity && typeof identity[field] !== 'string') throw journalError(`${label}.${field} is invalid`);
 }
@@ -436,7 +460,14 @@ function validateJournal(journal, stateRoot, journalPath) {
   if (path.basename(quarantineRoot) !== `.manage-skills-quarantine-${journal.quarantineToken}`) throw journalError('journal quarantine ownership is inconsistent');
   if (journal.quarantineCreated !== true && journal.operations.some((operation) => operation.type === 'quarantine')) throw journalError('journal quarantine operation lacks created quarantine');
   for (const operation of journal.operations) {
-    if (!plainObject(operation) || !['create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
+    if (!plainObject(operation) || !['target-create', 'create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
+    if (operation.type === 'target-create') {
+      onlyFields(operation, new Set(['type', 'targetPath', 'identity', 'status']), 'target-create operation');
+      if (typeof operation.targetPath !== 'string') throw journalError('target-create operation is invalid');
+      const createdTarget = absolutePath(operation.targetPath, 'target-create targetPath');
+      if (createdTarget !== targetRoot) throw journalError('target-create path does not match target');
+      if (operation.status === 'done') validateJournalIdentity(operation.identity, 'target-create identity');
+    }
     if (operation.type === 'create') {
       onlyFields(operation, new Set(['type', 'linkPath', 'sourceDir', 'status']), 'create operation');
       if (typeof operation.linkPath !== 'string' || typeof operation.sourceDir !== 'string') throw journalError('create operation is invalid');
@@ -482,6 +513,21 @@ export async function recoverJournal({ stateRoot, journalPath }) {
         }
         await fs.rename(operation.quarantine, operation.original);
         restored.push(operation.original);
+      } else if (operation.type === 'target-create') {
+        const current = await lstatOrNull(operation.targetPath);
+        if (!current) continue;
+        if (!current.isDirectory() || current.isSymbolicLink()) {
+          conflicts.push({ targetPath: operation.targetPath, reason: 'created target changed' });
+          continue;
+        }
+        const stat = await fs.stat(operation.targetPath);
+        const entries = await fs.readdir(operation.targetPath);
+        if (entries.length !== 0 || !sameIdentityFields(stat, operation.identity, ['dev', 'ino'])) {
+          conflicts.push({ targetPath: operation.targetPath, reason: entries.length ? 'created target is not empty' : 'created target identity changed' });
+          continue;
+        }
+        await fs.rmdir(operation.targetPath);
+        rolledBack.push(operation.targetPath);
       } else {
         const current = await lstatOrNull(operation.linkPath);
         const source = await fs.realpath(operation.sourceDir).catch(() => null);

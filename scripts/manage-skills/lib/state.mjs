@@ -62,7 +62,9 @@ function identityCanonicalPath(identity, label) {
 function validIdentity(identity, label, { git = false } = {}) {
   assertPlainJson(identity, label);
   const canonicalPath = identityCanonicalPath(identity, label);
-  if (!Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0) {
+  if (identity.missing === true) {
+    if (identity.dev !== null || identity.ino !== null) throw stateError('IDENTITY_INVALID', `${label} missing identity must use null dev and ino`);
+  } else if (!Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0) {
     throw stateError('IDENTITY_INVALID', `${label} must include non-negative integer dev and ino`);
   }
   if (git) {
@@ -82,6 +84,7 @@ function targetFields(identity) {
     canonicalPath,
     dev: identity.dev,
     ino: identity.ino,
+    ...(identity.missing === undefined ? {} : { missing: identity.missing }),
   };
 }
 
@@ -117,7 +120,7 @@ function validateManifestIdentity(value, label, { git = false } = {}) {
   if (!isPlainObject(value)) throw stateError('MANIFEST_MALFORMED', `${label} must be an object`);
   try {
     const normalized = git ? catalogFields(value) : targetFields(value);
-    const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino']);
+    const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino', 'missing']);
     if (Object.keys(value).some((key) => !allowed.has(key))) throw new Error('unknown field');
     if (value.path !== undefined && (typeof value.path !== 'string' || !path.isAbsolute(value.path))) throw new Error('invalid path');
     return normalized;

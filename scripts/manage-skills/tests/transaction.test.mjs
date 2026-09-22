@@ -417,6 +417,33 @@ test('create-only recovery does not require an unused quarantine root', async ()
   assert.equal(await fs.lstat(linkPath).catch(() => null), null);
 });
 
+test('missing target is created only by apply and recovery removes only an empty owned directory', async () => {
+  const f = await fixture();
+  await fs.rm(f.targetRoot, { recursive: true });
+  await fs.mkdir(path.dirname(f.targetRoot), { recursive: true });
+  const parentStat = await fs.stat(path.dirname(f.targetRoot));
+  const missingTarget = {
+    path: f.targetRoot,
+    canonicalPath: f.targetRoot,
+    realPath: f.targetRoot,
+    dev: null,
+    ino: null,
+    missing: true,
+    parentIdentity: { canonicalPath: await fs.realpath(path.dirname(f.targetRoot)), dev: parentStat.dev, ino: parentStat.ino },
+    stateRoot: f.stateRoot,
+  };
+  const planSet = await buildPlanSet({ targets: [missingTarget], catalog: f.cat, desiredSelections: f.cat.skills });
+  const dryRun = await applyPlanSet(planSet, { state: { stateRoot: f.stateRoot }, dryRun: true });
+  assert.equal(await fs.lstat(f.targetRoot).catch(() => null), null);
+  assert.equal(dryRun.exitCode, 0);
+  const failed = await applyPlanSet(planSet, { state: { stateRoot: f.stateRoot, failAfter: 1 } });
+  assert.equal(failed.exitCode, 1);
+  assert.equal((await fs.stat(f.targetRoot)).isDirectory(), true);
+  const recovered = await recoverJournal({ stateRoot: f.stateRoot, journalPath: failed.targets[0].journal });
+  assert.equal(recovered.recovered, true);
+  assert.equal(await fs.lstat(f.targetRoot).catch(() => null), null);
+});
+
 test('journal recovery rejects unknown fields and incomplete schemas', async () => {
   const f = await fixture();
   const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot, failAfter: 0 } });

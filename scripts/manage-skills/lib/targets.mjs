@@ -145,15 +145,20 @@ export async function validateTarget({ targetPath, catalogRoot, mode = 'custom' 
     throw targetError('UNSAFE_TARGET', `Target rejected: target and catalog overlap (${absolute}, ${catalogReal})`, 'target and catalog overlap');
   }
 
-  let identity = { dev: null, ino: null };
+  let identity = { dev: null, ino: null, missing: true };
   if (targetStat) {
     const stat = await fs.stat(absolute);
-    identity = { dev: stat.dev, ino: stat.ino };
+    identity = { dev: stat.dev, ino: stat.ino, missing: false };
   }
+  const parentPath = path.dirname(absolute);
+  const parentRealPath = await fs.realpath(parentPath);
+  const parentStat = await fs.stat(parentRealPath);
   return {
     path: absolute,
     realPath: targetReal,
+    canonicalPath: targetReal,
     ...identity,
+    ...(identity.missing ? { parentIdentity: { canonicalPath: parentRealPath, dev: parentStat.dev, ino: parentStat.ino } } : {}),
     existed: Boolean(targetStat),
     stateRoot: stateRootFor({ mode }),
   };

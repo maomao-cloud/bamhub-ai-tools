@@ -31,3 +31,10 @@ Task 8 documentation and real Pod/runtime work were not implemented.
 The real Pod catalog exposed duplicate skill names and source-relative paths. CLI catalog validation now blocks only `catalog.invalid`; `catalog.duplicates` remains in status/plan/apply reports, while unqualified duplicate names return an `ambiguous` selector error and source-relative selectors continue. Interactive orchestration and transaction interfaces were left unchanged.
 
 Added CLI regression coverage for duplicate reporting, ambiguous names, and qualified `sourceRelative` execution.
+
+## Missing-target apply fix
+
+- Missing final targets now carry an explicit `missing: true` identity with null `dev`/`ino`; target locks use the stable path-based identity without fabricating inode data.
+- Confirmed apply creates only the validated final directory under its existing, non-symlink parent; dry-run/status/plan remain non-mutating.
+- Journals record `target-create`; recovery removes only that transaction-created directory when it is still empty and its recorded identity matches. Manifest writes refresh to the real target identity.
+- Regression coverage added for missing identity state handling and target create/recovery behavior.

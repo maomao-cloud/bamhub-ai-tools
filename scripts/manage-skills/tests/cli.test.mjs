@@ -84,6 +84,19 @@ test('status reports missing target and DSH_HOME fallback', async () => {
   assert.equal(result.stderr, '');
 });
 
+test('apply --yes creates a missing final target without mutating during plan', async () => {
+  const f = await fixture();
+  await fs.rm(f.target, { recursive: true });
+  const planned = await run(['plan', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha', '--json'], f.env);
+  assert.equal(planned.code, 0, planned.stderr);
+  assert.equal(await fs.lstat(f.target).catch(() => null), null);
+  const applied = await run(['apply', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha', '--non-interactive', '--yes', '--json'], f.env);
+  assert.equal(applied.code, 0, `${applied.stdout}\n${applied.stderr}`);
+  assert.equal((await fs.stat(f.target)).isDirectory(), true);
+  assert.equal((await fs.lstat(path.join(f.target, 'alpha'))).isSymbolicLink(), true);
+  assert.equal(JSON.parse(applied.stdout).targets[0].result.verified, true);
+});
+
 test('rejects target/runtime conflict and missing desired state', async () => {
   const f = await fixture();
   const conflict = await run(['plan', '--catalog', f.catalog, '--target', f.target, '--runtime', 'dsh', '--enable', 'alpha'], f.env);
