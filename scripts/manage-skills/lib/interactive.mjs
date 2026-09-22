@@ -98,10 +98,14 @@ function createSession(io) {
       let done = false;
       let escapeBuffer = '';
       let escapeTimer;
+      const clearEscapeTimer = () => {
+        if (escapeTimer) clearTimeout(escapeTimer);
+        escapeTimer = undefined;
+      };
       const finish = (value, error = false) => {
         if (done) return;
         done = true;
-        if (escapeTimer) clearTimeout(escapeTimer);
+        clearEscapeTimer();
         input.off?.('data', onData);
         input.off?.('end', endHandler);
         if (raw && typeof input.setRawMode === 'function') input.setRawMode(false);
@@ -117,8 +121,8 @@ function createSession(io) {
             return;
           }
           if (escapeBuffer.startsWith(`${ESC}[` ) && escapeBuffer.length < 3) return;
-          if (escapeBuffer === `${ESC}[A` || escapeBuffer === `${ESC}[D`) { escapeBuffer = ''; continue; }
-          if (escapeBuffer === `${ESC}[B` || escapeBuffer === `${ESC}[C`) { escapeBuffer = ''; continue; }
+          if (escapeBuffer === `${ESC}[A` || escapeBuffer === `${ESC}[D`) { escapeBuffer = ''; clearEscapeTimer(); continue; }
+          if (escapeBuffer === `${ESC}[B` || escapeBuffer === `${ESC}[C`) { escapeBuffer = ''; clearEscapeTimer(); continue; }
           const char = escapeBuffer[0];
           escapeBuffer = escapeBuffer.slice(1);
           if (char === '\u0003') return finish(CANCEL, true);
@@ -152,6 +156,10 @@ function createSession(io) {
     }
     return new Promise((resolve, reject) => {
       const selected = new Set(); let cursor = 0; let done = false; let escapeBuffer = ''; let escapeTimer;
+      const clearEscapeTimer = () => {
+        if (escapeTimer) clearTimeout(escapeTimer);
+        escapeTimer = undefined;
+      };
       const finish = (value, error = false) => {
         if (done) return;
         done = true;
@@ -168,8 +176,8 @@ function createSession(io) {
         while (escapeBuffer) {
           if (escapeBuffer === ESC) { if (!escapeTimer) escapeTimer = setTimeout(() => finish(CANCEL, true), 0); return; }
           if (escapeBuffer.startsWith(`${ESC}[`) && escapeBuffer.length < 3) return;
-          if (escapeBuffer === `${ESC}[A` || escapeBuffer === `${ESC}[D`) { cursor = Math.max(0, cursor - 1); escapeBuffer = ''; render(); continue; }
-          if (escapeBuffer === `${ESC}[B` || escapeBuffer === `${ESC}[C`) { cursor = Math.min(items.length - 1, cursor + 1); escapeBuffer = ''; render(); continue; }
+          if (escapeBuffer === `${ESC}[A` || escapeBuffer === `${ESC}[D`) { cursor = Math.max(0, cursor - 1); escapeBuffer = ''; clearEscapeTimer(); render(); continue; }
+          if (escapeBuffer === `${ESC}[B` || escapeBuffer === `${ESC}[C`) { cursor = Math.min(items.length - 1, cursor + 1); escapeBuffer = ''; clearEscapeTimer(); render(); continue; }
           const char = escapeBuffer[0]; escapeBuffer = escapeBuffer.slice(1);
           if (char === '\u0003') return finish(CANCEL, true);
           if (char === ESC) continue;
@@ -190,7 +198,12 @@ function createSession(io) {
 }
 
 function renderEntry(entry) {
-  const fields = [entry?.path, entry?.source, entry?.relativeTarget, entry?.reason].filter((value) => value !== undefined && value !== '');
+  const fields = [
+    entry?.linkPath ?? entry?.path,
+    entry?.sourceDir ?? entry?.source,
+    entry?.relativeTarget,
+    entry?.reason,
+  ].filter((value) => value !== undefined && value !== '');
   return fields.length ? fields.join(' | ') : JSON.stringify(entry);
 }
 function renderPlan(plan, io, heading) {
@@ -219,7 +232,7 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
   catalogResolver ??= io.catalogResolver;
   targetDetector ??= io.targetDetector;
   discoverCatalog ??= io.discoverCatalog ?? defaultDiscoverCatalog;
-  scanValidSkills ??= io.scanValidSkills;
+  scanValidSkills ??= io.scanValidSkills ?? (async ({ catalog }) => catalog?.skills ?? []);
   const build = injectedBuild ?? io.buildPlanSet ?? defaultBuildPlanSet;
   const scanState = injectedScan ?? io.scanState;
   const session = createSession(io);
@@ -230,9 +243,8 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
     const catalogRoot = resolved?.root ?? resolved?.catalog?.root;
     write(io, `Catalog: ${catalogRoot ?? '(unknown)'}\n`);
     if (!(await session.confirm('Use this catalog? [y/N]'))) return { cancelled: true };
-    let catalog = resolved?.catalog ?? (resolved?.skills ? resolved : null);
-    if (!catalog) catalog = await discoverCatalog({ catalogRoot: resolved?.root ?? resolved?.catalogRoot, resolution: resolved });
-    const skills = scanValidSkills ? await scanValidSkills({ catalog, catalogRoot: catalog?.root ?? catalogRoot }) : (catalog?.skills ?? []);
+    const catalog = await discoverCatalog({ catalogRoot: resolved?.root ?? resolved?.catalog?.root ?? resolved?.catalogRoot, resolution: resolved });
+    const skills = await scanValidSkills({ catalog, catalogRoot: catalog?.root ?? catalogRoot });
     const targetChoice = await session.select('Select global runtime targets', runtimes);
     if (targetChoice.disableAll) return { cancelled: true };
     const targets = targetChoice.indexes.map((index) => runtimes[index]);

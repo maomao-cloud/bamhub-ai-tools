@@ -2,16 +2,16 @@
 
 ## Reviewer fixes
 
-- `interactive.mjs` now scans runtime candidates before resolving and confirming the catalog; catalog discovery and valid-skill scanning are dependency-injected and deferred until after catalog confirmation.
-- TTY input uses a single guarded finish path for approval, cancellation, EOF, signals, and cleanup. Bare ESC waits one event-loop turn so fragmented arrow sequences are decoded without premature cancellation; raw mode is restored on every exit path.
-- PlanSet previews always print create/remove/keep/conflicts/protected for every target and for the top-level summary, including available path, source, relative target, and reason fields.
+- `catalogResolver` now resolves only a candidate; after confirmation, `discoverCatalog` and `scanValidSkills` always run in order, even when the resolver injects a pre-scanned catalog.
+- TTY input clears the deferred ESC timer when a fragmented arrow sequence completes, so later input after an event-loop tick is not cancelled; raw mode is restored on every exit path.
+- PlanSet previews use real `linkPath`/`sourceDir`/`relativeTarget`/`reason` fields with `path`/`source` compatibility fallbacks, and retain every available field across create/remove/keep/conflicts/protected categories.
 - Final `onPlanSet` handoff remains after final confirmation; the interactive module does not perform filesystem mutation.
 
 ## Test coverage
 
-- Added fake stdin/stdout/TTY fixtures covering observable wizard call order, catalog-scan deferral, bare ESC, fragmented arrows, raw-mode enter/restore, EOF, SIGTERM, dependency exceptions/finally cleanup, complete PlanSet rendering, and mutation-spy ordering.
-- Focused: `node --test scripts/manage-skills/tests/interactive.test.mjs` — PASS (13 tests).
-- Full: `node --test` — PASS (249 tests).
+- Added fake stdin/stdout/TTY fixtures covering observable wizard call order, resolver-catalog bypass prevention, bare ESC, fragmented arrows after a tick, raw-mode enter/restore, EOF, SIGTERM, dependency exceptions/finally cleanup, complete real PlanSet rendering, and `onPlanSet` ordering; removed duplicate and unused mutation-spy tests.
+- Focused: `node --test scripts/manage-skills/tests/interactive.test.mjs` — PASS (11 tests).
+- Full: `node --test` — PASS (247 tests).
 - `node --check scripts/manage-skills/lib/interactive.mjs` — PASS.
 - `git diff --check` — PASS.
 

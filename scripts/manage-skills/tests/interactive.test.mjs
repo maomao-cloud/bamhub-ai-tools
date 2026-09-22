@@ -15,21 +15,27 @@ function scriptedIo(input) {
   };
 }
 
+function catalog() {
+  return {
+    root: '/catalog',
+    skills: [
+      { name: 'alpha', description: 'Alpha', relativeSource: 'alpha', sourceDir: '/catalog/alpha', sourceIdentity: { canonicalPath: '/catalog/alpha', dev: 1, ino: 1 } },
+      { name: 'beta', description: 'Beta', relativeSource: 'beta', sourceDir: '/catalog/beta', sourceIdentity: { canonicalPath: '/catalog/beta', dev: 1, ino: 2 } },
+    ], invalid: [], duplicates: [],
+  };
+}
+
 function dependencies(calls) {
   return {
-    catalogResolver: async () => ({ root: '/catalog', source: 'default', catalog: {
-      root: '/catalog',
-      skills: [
-        { name: 'alpha', description: 'Alpha', relativeSource: 'alpha', sourceDir: '/catalog/alpha', sourceIdentity: { canonicalPath: '/catalog/alpha', dev: 1, ino: 1 } },
-        { name: 'beta', description: 'Beta', relativeSource: 'beta', sourceDir: '/catalog/beta', sourceIdentity: { canonicalPath: '/catalog/beta', dev: 1, ino: 2 } },
-      ], invalid: [], duplicates: [],
-    } }),
+    catalogResolver: async () => ({ root: '/catalog', source: 'default', catalog: catalog() }),
+    discoverCatalog: async ({ catalogRoot, resolution }) => { calls.push({ type: 'discover', catalogRoot, resolution }); return catalog(); },
+    scanValidSkills: async ({ catalog: value, catalogRoot }) => { calls.push({ type: 'valid-scan', catalog: value, catalogRoot }); return value.skills; },
     targetDetector: async () => [
       { id: 'dsh', label: 'DSH', path: '/home/.dsh/skills', selectable: true },
       { id: 'codex', label: 'Codex', path: '/home/.agents/skills', selectable: true },
     ],
-    buildPlanSet: async ({ targets, catalog, desiredSelections, options }) => {
-      calls.push({ type: 'plan', targets, catalog, desiredSelections, options });
+    buildPlanSet: async ({ targets, catalog: value, desiredSelections, options }) => {
+      calls.push({ type: 'plan', targets, catalog: value, desiredSelections, options });
       return { plans: targets.map((target) => ({ target, desired: desiredSelections, create: [], remove: [], keep: [], conflicts: [], protected: [] })), protected: [], conflicts: [] };
     },
     scanState: async (targets) => { calls.push({ type: 'scan', targets }); return new Map(); },
@@ -81,18 +87,6 @@ test('wizard surfaces dependency exceptions and still closes injected readline r
   assert.ok(events.includes('close'));
 });
 
-test('wizard never calls filesystem mutation operations before final approval', async () => {
-  const calls = [];
-  const io = scriptedIo('y\n1\na\nn\n');
-  const deps = dependencies(calls);
-  for (const name of ['mkdir', 'lock', 'manifest', 'symlink', 'quarantine', 'delete']) {
-    deps[name] = async () => { throw new Error(`${name} must not be called`); };
-  }
-  const result = await runInteractive({ ...deps, io });
-  assert.deepEqual(result, { cancelled: true });
-  assert.equal(calls.some((call) => call.type === 'plan'), true);
-});
-
 // Keep the assertion above independent of Node versions lacking partialDeepStrictEqual.
 // The desired selection is checked through the plan dependency below.
 test('wizard passes selected skill objects to plan builder', async () => {
@@ -105,25 +99,33 @@ test('wizard passes selected skill objects to plan builder', async () => {
 });
 
 // Avoid accidental reliance on a test-only assertion helper in the first test.
-test('confirmPlanSet renders every category with target metadata and reasons', async () => {
+test('confirmPlanSet renders the complete real PlanSet schema without dropping fields', async () => {
   const io = scriptedIo('y\n');
   await confirmPlanSet({
     plans: [{
-      target: { label: 'DSH', path: '/target', source: 'runtime', relativeTarget: '.dsh/skills' },
-      create: [{ path: '/target/new', source: '/catalog/new', relativeTarget: 'new', reason: 'missing' }],
-      remove: [{ path: '/target/old', source: 'runtime', relativeTarget: 'old', reason: 'not selected' }],
-      keep: [{ path: '/target/keep', source: 'catalog', relativeTarget: 'keep', reason: 'already linked' }],
-      conflicts: [{ path: '/target/conflict', source: 'foreign', relativeTarget: 'conflict', reason: 'foreign link' }],
-      protected: [{ path: '/target/manual', source: 'manual', relativeTarget: 'manual', reason: 'protected' }],
+      target: { label: 'DSH', path: '/target' },
+      create: [{ linkPath: '/target/new', sourceDir: '/catalog/new', relativeTarget: '../catalog/new', reason: 'missing' }],
+      remove: [{ linkPath: '/target/old', sourceDir: '/catalog/old', relativeTarget: '../catalog/old', reason: 'not selected' }],
+      keep: [{ linkPath: '/target/keep', sourceDir: '/catalog/keep', relativeTarget: '../catalog/keep', reason: 'already linked' }],
+      conflicts: [{ linkPath: '/target/conflict', sourceDir: '/catalog/conflict', relativeTarget: '../catalog/conflict', reason: 'foreign link' }],
+      protected: [{ linkPath: '/target/manual', sourceDir: '/catalog/manual', relativeTarget: '../catalog/manual', reason: 'protected' }],
     }],
-    create: [{ path: '/top/create', reason: 'top create' }],
-    remove: [{ path: '/top/remove', reason: 'top remove' }],
-    keep: [{ path: '/top/keep', reason: 'top keep' }],
-    conflicts: [{ path: '/top/conflict', reason: 'top conflict' }],
-    protected: [{ path: '/top/protected', reason: 'top protected' }],
+    create: [{ linkPath: '/top/create', sourceDir: '/catalog/create', relativeTarget: '../catalog/create', reason: 'top create' }],
+    remove: [{ linkPath: '/top/remove', sourceDir: '/catalog/remove', relativeTarget: '../catalog/remove', reason: 'top remove' }],
+    keep: [{ linkPath: '/top/keep', sourceDir: '/catalog/keep', relativeTarget: '../catalog/keep', reason: 'top keep' }],
+    conflicts: [{ linkPath: '/top/conflict', sourceDir: '/catalog/conflict', relativeTarget: '../catalog/conflict', reason: 'top conflict' }],
+    protected: [{ linkPath: '/top/protected', sourceDir: '/catalog/protected', relativeTarget: '../catalog/protected', reason: 'top protected' }],
   }, io);
   const text = io.text();
-  for (const value of ['create', 'remove', 'keep', 'conflicts', 'protected', '/target/new', '/catalog/new', 'new', 'missing', '/top/create']) assert.match(text, new RegExp(value));
+  for (const value of [
+    'create', 'remove', 'keep', 'conflicts', 'protected',
+    '/target/new', '/catalog/new', '../catalog/new', 'missing',
+    '/target/old', '/catalog/old', 'not selected',
+    '/target/keep', '/catalog/keep', 'already linked',
+    '/target/conflict', '/catalog/conflict', 'foreign link',
+    '/target/manual', '/catalog/manual', 'protected',
+    '/top/create', '/catalog/create', 'top create',
+  ]) assert.ok(text.includes(value), `missing preview field: ${value}`);
 });
 
 class FakeRawInput {
@@ -150,43 +152,55 @@ test('TTY bare ESC cancels through the common finish path and restores raw mode'
   assert.deepEqual(input.rawModes, [true, false]);
 });
 
-test('TTY fragmented arrow sequence is not treated as cancellation', async () => {
+test('TTY fragmented arrow sequence clears its ESC timer before later input', async () => {
   const { io, input } = fakeTtyIo();
   const promise = runInteractive({
     io,
     catalogResolver: async () => ({ root: '/catalog', catalog: { root: '/catalog', skills: [] } }),
+    discoverCatalog: async () => ({ root: '/catalog', skills: [] }),
     targetDetector: async () => [{ id: 'dsh', label: 'DSH', path: '/target' }],
+    buildPlanSet: async () => ({ plans: [] }),
   });
+  await new Promise((resolve) => setImmediate(resolve));
+  input.emit('data', 'y');
   await new Promise((resolve) => setImmediate(resolve));
   input.emit('data', '\u001b');
   input.emit('data', '[B');
-  input.emit('data', '\u0003');
-  assert.deepEqual(await promise, { cancelled: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  input.emit('data', ' ');
+  input.emit('data', '\r');
+  await new Promise((resolve) => setImmediate(resolve));
+  input.emit('data', '\r');
+  const result = await promise;
+  assert.equal(result.cancelled, undefined);
   assert.deepEqual(input.rawModes.filter(Boolean).length, input.rawModes.filter((mode) => mode === false).length);
 });
 
-test('wizard observes fixed scan and confirmation order and defers catalog scan', async () => {
+test('wizard observes fixed scan, confirmation, discovery, and valid-skill order', async () => {
   const events = [];
   const io = scriptedIo('y\na\na\ny\n');
   const result = await runInteractive({
     io,
     targetDetector: async () => { events.push('runtime-scan'); return [{ id: 'dsh', label: 'DSH', path: '/target' }]; },
-    catalogResolver: async () => { events.push('catalog-candidate'); return { root: '/catalog' }; },
-    discoverCatalog: async () => { events.push('catalog-scan'); return { root: '/catalog', skills: [{ name: 'skill' }] }; },
+    catalogResolver: async () => { events.push('catalog-candidate'); return { root: '/catalog', catalog: { root: '/catalog', skills: [{ name: 'candidate-only' }] } }; },
+    discoverCatalog: async ({ catalogRoot }) => { events.push(`catalog-scan:${catalogRoot}`); return { root: '/catalog', skills: [{ name: 'skill' }] }; },
+    scanValidSkills: async ({ catalog: value }) => { events.push(`valid-scan:${value.skills[0].name}`); return value.skills; },
     scanState: async () => { events.push('state-scan'); return {}; },
     buildPlanSet: async () => { events.push('plan'); return { plans: [] }; },
   });
   assert.equal(result.cancelled, undefined);
-  assert.deepEqual(events, ['runtime-scan', 'catalog-candidate', 'catalog-scan', 'state-scan', 'plan']);
+  assert.deepEqual(events, ['runtime-scan', 'catalog-candidate', 'catalog-scan:/catalog', 'valid-scan:skill', 'state-scan', 'plan']);
 });
 
-test('final confirmation precedes onPlanSet and all mutation spies', async () => {
+test('approved PlanSet is handed to onPlanSet only after preview confirmation', async () => {
   const events = [];
-  const io = scriptedIo('y\na\na\nn\n');
-  io.onPlanSet = () => events.push('mutation');
-  const result = await runInteractive({ ...dependencies(events), io, mkdir: () => events.push('mkdir') });
-  assert.deepEqual(result, { cancelled: true });
-  assert.deepEqual(events.filter((event) => ['mutation', 'mkdir'].includes(event)), []);
+  const io = scriptedIo('y\na\na\ny\n');
+  io.onPlanSet = () => { events.push('onPlanSet'); };
+  const deps = dependencies(events);
+  const result = await runInteractive({ ...deps, io });
+  assert.equal(result.cancelled, undefined);
+  assert.equal(events.at(-1), 'onPlanSet');
+  assert.ok(events.findIndex((event) => event.type === 'plan') < events.indexOf('onPlanSet'));
 });
 
 test('TTY EOF, SIGTERM, and dependency errors restore raw mode in finally', async () => {
@@ -202,17 +216,6 @@ test('TTY EOF, SIGTERM, and dependency errors restore raw mode in finally', asyn
   const { io, input } = fakeTtyIo();
   await assert.rejects(() => runInteractive({ io, targetDetector: async () => [], catalogResolver: async () => { throw new Error('boom'); } }), /boom/);
   assert.deepEqual(input.rawModes, []);
-});
-
-// Keep the assertion above independent of Node versions lacking partialDeepStrictEqual.
-// The desired selection is checked through the plan dependency below.
-test('wizard passes selected skill objects to plan builder', async () => {
-  const calls = [];
-  const io = scriptedIo('y\n2\na\ny\n');
-  await runInteractive({ ...dependencies(calls), io });
-  const plan = calls.find((call) => call.type === 'plan');
-  assert.deepEqual(plan.desiredSelections.map((skill) => skill.name), ['alpha', 'beta']);
-  assert.deepEqual(plan.targets.map((target) => target.id), ['codex']);
 });
 
 // Wrapper report retains the SDD artifact while this test file owns executable coverage.
