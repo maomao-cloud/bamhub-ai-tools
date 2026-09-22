@@ -25,3 +25,9 @@ Implemented the manage-skills CLI surface in the isolated worktree.
 - Diff: `git diff --check` passed.
 
 Task 8 documentation and real Pod/runtime work were not implemented.
+
+## Real Pod probe follow-up
+
+The real Pod catalog exposed duplicate skill names and source-relative paths. CLI catalog validation now blocks only `catalog.invalid`; `catalog.duplicates` remains in status/plan/apply reports, while unqualified duplicate names return an `ambiguous` selector error and source-relative selectors continue. Interactive orchestration and transaction interfaces were left unchanged.
+
+Added CLI regression coverage for duplicate reporting, ambiguous names, and qualified `sourceRelative` execution.

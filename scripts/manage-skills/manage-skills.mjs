@@ -79,8 +79,8 @@ async function resolveContext(options) {
   const resolution = await resolveCatalog({ explicitPath: options.catalog, env: process.env, scriptFile: import.meta.url });
   if (resolution.missing) throw cliError('CATALOG_NOT_FOUND', `Catalog is unavailable: ${resolution.root}`, 1);
   const catalog = await discoverCatalog({ catalogRoot: resolution.root });
-  if (catalog.invalid.length || catalog.duplicates.length) {
-    const error = cliError('CATALOG_INVALID', `Catalog contains invalid or duplicate skills: ${resolution.root}`, 1);
+  if (catalog.invalid.length) {
+    const error = cliError('CATALOG_INVALID', `Catalog contains invalid skills: ${resolution.root}`, 1);
     error.catalog = catalog;
     throw error;
   }

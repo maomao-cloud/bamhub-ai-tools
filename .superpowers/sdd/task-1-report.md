@@ -130,3 +130,9 @@ node --test scripts/manage-skills/tests/catalog.test.mjs
 git diff --check
 passed
 ```
+
+## Real Pod probe follow-up
+
+A real Pod catalog probe showed Bamhub skills use quoted scalar metadata plus unknown `keywords`, `categories`, and nested `examples`; the previous parser rejected this shape (and `description: >`/`>-`/`|` continuations). The catalog parser now accepts only the required safe subset, ignores unknown nested metadata, and retains delimiter, duplicate-field, name, and symlink/source safety validation.
+
+The regression tests cover folded/literal descriptions and actual metadata structure before implementation (red), then pass with the minimal dependency-free parser.

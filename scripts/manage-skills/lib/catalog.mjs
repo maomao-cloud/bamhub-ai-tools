@@ -138,37 +138,78 @@ async function findSkillFiles(directory, root, result = [], invalid = []) {
   return { skillFiles: result, invalid };
 }
 
-function parseValue(value) {
+function parseScalar(value, key) {
   const trimmed = value.trim();
-  if (!trimmed) return null;
+  if (!trimmed) throw new Error(`${key} must have a value`);
   const quote = trimmed[0];
   if (quote === "'" || quote === '"') {
-    if (trimmed.length < 2 || trimmed.at(-1) !== quote) return null;
+    if (trimmed.length < 2 || trimmed.at(-1) !== quote) throw new Error(`${key} has mismatched quotes`);
+    if (trimmed.slice(1, -1).includes(quote)) throw new Error(`${key} has invalid quotes`);
     return trimmed.slice(1, -1);
   }
-  if (trimmed.includes('\n')) return null;
+  if (trimmed.includes('\n')) throw new Error(`${key} must be scalar`);
   return trimmed;
+}
+
+function parseBlock(lines, start, indicator) {
+  const content = [];
+  let index = start;
+  let indent;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      content.push('');
+      index += 1;
+      continue;
+    }
+    const match = line.match(/^(\s+)/);
+    if (!match) break;
+    const currentIndent = match[1].length;
+    indent ??= currentIndent;
+    if (currentIndent < indent) break;
+    content.push(line.slice(indent));
+    index += 1;
+  }
+  if (content.length === 0 || !content.some((line) => line.trim())) throw new Error('block scalar must have indented content');
+  const literal = indicator.startsWith('|');
+  let value = literal ? content.join('\n') : content.reduce((result, line, lineIndex) => {
+    if (!line) return `${result}\n`;
+    if (!result || result.endsWith('\n')) return result + line;
+    return `${result} ${line}`;
+  }, '');
+  const chomp = indicator.slice(1);
+  if (chomp === '-') value = value.replace(/\n+$/, '');
+  else if (chomp !== '+') value = `${value.replace(/\n*$/, '')}\n`;
+  return { value, next: index };
 }
 
 function parseFrontmatter(text) {
   const lines = text.split(/\r?\n/);
   if (lines[0] !== '---') throw new Error('frontmatter must start with ---');
-  const end = lines.indexOf('---', 1);
-  if (end < 0) throw new Error('frontmatter must end with ---');
   const values = {};
-  for (const line of lines.slice(1, end)) {
-    if (!line.trim()) continue;
-    if (/^\s/.test(line)) throw new Error('frontmatter must contain top-level single-line keys');
+  let index = 1;
+  let closed = false;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line === '---') { closed = true; break; }
+    if (!line.trim()) { index += 1; continue; }
+    if (/^\s/.test(line)) { index += 1; continue; }
     const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*):(?:\s*)(.*)$/);
-    if (!match) throw new Error('frontmatter contains an invalid or multiline field');
+    if (!match) throw new Error('frontmatter contains an invalid field');
     const [, key, raw] = match;
     if (key === 'name' || key === 'description') {
       if (Object.hasOwn(values, key)) throw new Error(`duplicate ${key}`);
-      const value = parseValue(raw);
-      if (value === null) throw new Error(`${key} must have a single-line value`);
-      values[key] = value;
+      if (/^[>|][+-]?$/.test(raw.trim())) {
+        const block = parseBlock(lines, index + 1, raw.trim());
+        values[key] = block.value;
+        index = block.next;
+        continue;
+      }
+      values[key] = parseScalar(raw, key);
     }
+    index += 1;
   }
+  if (!closed) throw new Error('frontmatter must end with ---');
   if (!values.name) throw new Error('missing name');
   if (!values.description) throw new Error('missing description');
   if (!SKILL_NAME.test(values.name)) throw new Error('name must be kebab-case');

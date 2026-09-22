@@ -189,11 +189,29 @@ test('discoverCatalog rejects invalid names, malformed frontmatter, duplicate na
   assert.equal(await fs.stat(path.join(duplicate, 'SKILL.md')).then(() => true), true);
 });
 
-test('discoverCatalog rejects multiline frontmatter and symlinked resources escaping the catalog', async () => {
+test('discoverCatalog accepts block descriptions and unknown nested metadata while preserving resource safety', async () => {
   const root = await tempDir();
-  const multiline = path.join(root, 'multiline');
-  await fs.mkdir(multiline, { recursive: true });
-  await fs.writeFile(path.join(multiline, 'SKILL.md'), '---\nname: multiline\ndescription: >\n  no\n---\n');
+  const folded = path.join(root, 'folded');
+  await fs.mkdir(folded, { recursive: true });
+  await fs.writeFile(path.join(folded, 'SKILL.md'), [
+    '---',
+    'name: folded',
+    'description: >-',
+    '  First line',
+    '  continuation line',
+    'keywords:',
+    '  - yaml',
+    'categories:',
+    '  - testing',
+    'examples:',
+    '  basic:',
+    '    command: run',
+    '---',
+    '',
+  ].join('\n'));
+  const literal = path.join(root, 'literal');
+  await fs.mkdir(literal, { recursive: true });
+  await fs.writeFile(path.join(literal, 'SKILL.md'), '---\nname: literal\ndescription: |\n  line one\n  line two\nunknown:\n  nested:\n    value: ignored\n---\n');
   const escaped = await writeSkill(root, 'escaped', { name: 'escaped', description: 'Escaped resource' });
   const outside = path.join(path.dirname(root), 'outside-resource.txt');
   await fs.writeFile(outside, 'outside');
@@ -207,8 +225,9 @@ test('discoverCatalog rejects multiline frontmatter and symlinked resources esca
   await fs.symlink(resourceDirectory, path.join(nestedLinks, 'nested-directory'), 'dir');
 
   const catalog = await discoverCatalog({ catalogRoot: root });
-  assert.equal(catalog.skills.length, 0);
-  assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'multiline' && /frontmatter|single-line/i.test(entry.reason)));
+  assert.deepEqual(catalog.skills.map((skill) => skill.name), ['folded', 'literal']);
+  assert.equal(catalog.skills.find((skill) => skill.name === 'folded').description, 'First line continuation line');
+  assert.equal(catalog.skills.find((skill) => skill.name === 'literal').description, 'line one\nline two\n');
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'escaped' && /outside|escape|catalog/i.test(entry.reason)));
   assert.ok(catalog.invalid.some((entry) => entry.relativeSource === 'nested-links' && /outside|escape|catalog/i.test(entry.reason)));
 });

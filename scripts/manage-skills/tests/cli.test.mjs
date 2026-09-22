@@ -103,6 +103,29 @@ test('plan resolves selector alias and emits JSON only on stdout', async () => {
   assert.equal(result.stderr, '');
 });
 
+test('duplicate catalog names are reported but status and interactive can continue', async () => {
+  const f = await fixture();
+  await fs.mkdir(path.join(f.catalog, 'other', 'alpha'), { recursive: true });
+  await fs.writeFile(path.join(f.catalog, 'other', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: Duplicate\n---\n');
+  const result = await run(['status', '--catalog', f.catalog, '--target', f.target, '--json'], f.env);
+  assert.equal(result.code, 0, `${result.stdout}\\n${result.stderr}`);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.catalog.duplicates, [{ name: 'alpha', sources: ['group/alpha', 'other/alpha'] }]);
+});
+
+test('ambiguous names require source-relative selectors while qualified selectors execute', async () => {
+  const f = await fixture();
+  await fs.mkdir(path.join(f.catalog, 'other', 'alpha'), { recursive: true });
+  await fs.writeFile(path.join(f.catalog, 'other', 'alpha', 'SKILL.md'), '---\nname: alpha\ndescription: Duplicate\n---\n');
+  const ambiguous = await run(['plan', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha', '--json'], f.env);
+  assert.equal(ambiguous.code, 2);
+  assert.match(ambiguous.stderr, /ambiguous/i);
+  const qualified = await run(['plan', '--catalog', f.catalog, '--target', f.target, '--enable', 'group/alpha', '--json'], f.env);
+  assert.equal(qualified.code, 0, `${qualified.stdout}\\n${qualified.stderr}`);
+  assert.equal(JSON.parse(qualified.stdout).targets[0].plan.desired[0].sourceRelative, 'group/alpha');
+});
+
 test('disable-all creates an empty desired plan and apply --yes mutates', async () => {
   const f = await fixture();
   const result = await run(['apply', '--catalog', f.catalog, '--target', f.target, '--disable-all', '--yes', '--json'], f.env);
