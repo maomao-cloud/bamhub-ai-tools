@@ -142,10 +142,50 @@ function parseScalar(value, key) {
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${key} must have a value`);
   const quote = trimmed[0];
-  if (quote === "'" || quote === '"') {
-    if (trimmed.length < 2 || trimmed.at(-1) !== quote) throw new Error(`${key} has mismatched quotes`);
-    if (trimmed.slice(1, -1).includes(quote)) throw new Error(`${key} has invalid quotes`);
-    return trimmed.slice(1, -1);
+  if (quote === "'") {
+    let result = '';
+    for (let index = 1; index < trimmed.length; index += 1) {
+      const character = trimmed[index];
+      if (character !== "'") {
+        result += character;
+        continue;
+      }
+      if (trimmed[index + 1] === "'") {
+        result += "'";
+        index += 1;
+        continue;
+      }
+      if (index !== trimmed.length - 1) throw new Error(`${key} has invalid quotes`);
+      return result;
+    }
+    throw new Error(`${key} has mismatched quotes`);
+  }
+  if (quote === '"') {
+    let result = '';
+    for (let index = 1; index < trimmed.length; index += 1) {
+      const character = trimmed[index];
+      if (character === '"') {
+        if (index !== trimmed.length - 1) throw new Error(`${key} has trailing content`);
+        return result;
+      }
+      if (character !== '\\') {
+        result += character;
+        continue;
+      }
+      const escaped = trimmed[++index];
+      const escapes = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+      if (escaped === 'u') {
+        const code = trimmed.slice(index + 1, index + 5);
+        if (!/^[0-9a-fA-F]{4}$/.test(code)) throw new Error(`${key} has invalid escape`);
+        result += String.fromCharCode(Number.parseInt(code, 16));
+        index += 4;
+      } else if (Object.hasOwn(escapes, escaped)) {
+        result += escapes[escaped];
+      } else {
+        throw new Error(`${key} has invalid escape`);
+      }
+    }
+    throw new Error(`${key} has mismatched quotes`);
   }
   if (trimmed.includes('\n')) throw new Error(`${key} must be scalar`);
   return trimmed;

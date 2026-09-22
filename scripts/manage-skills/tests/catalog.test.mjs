@@ -257,25 +257,61 @@ test('discoverCatalog terminates and reports one result for internal symlink cyc
   assert.equal(catalog.invalid.filter(({ reason }) => reason === 'bundle resource symlink escapes catalog').length, 1);
 });
 
-test('discoverCatalog requires frontmatter quotes to match exactly without trailing content', async () => {
+test('discoverCatalog parses the real darwin fixture and escaped quoted scalars', async () => {
+  const repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../..');
+  const realCatalog = await discoverCatalog({ catalogRoot: path.join(repositoryRoot, 'skills') });
+  const darwin = realCatalog.skills.find((skill) => skill.relativeSource === 'darwin');
+
+  assert.equal(darwin?.name, 'darwin-skill');
+  assert.match(darwin?.description ?? '', /Darwin Skill 2\.0/);
+  assert.equal(realCatalog.invalid.some((entry) => entry.relativeSource === 'darwin'), false);
+
+  const root = await tempDir();
+  const escaped = path.join(root, 'escaped');
+  await fs.mkdir(escaped, { recursive: true });
+  await fs.writeFile(path.join(escaped, 'SKILL.md'), [
+    '---',
+    'name: escaped',
+    'description: "A \\\"quoted\\\" path with \\\\slashes"',
+    '---',
+    '',
+  ].join('\n'));
+  const single = path.join(root, 'single-quoted');
+  await fs.mkdir(single, { recursive: true });
+  await fs.writeFile(path.join(single, 'SKILL.md'), [
+    '---',
+    'name: single-quoted',
+    "description: 'A ''quoted'' value'",
+    '---',
+    '',
+  ].join('\n'));
+
+  const catalog = await discoverCatalog({ catalogRoot: root });
+  assert.equal(catalog.invalid.length, 0);
+  assert.equal(catalog.skills.find((skill) => skill.name === 'escaped').description, 'A "quoted" path with \\slashes');
+  assert.equal(catalog.skills.find((skill) => skill.name === 'single-quoted').description, "A 'quoted' value");
+});
+
+test('discoverCatalog rejects malformed quoted scalars and trailing content', async () => {
   const root = await tempDir();
   const cases = [
     ['mismatched', "name: 'mismatched\ndescription: \"Description'"],
     ['trailing', 'name: "trailing" extra\ndescription: Description'],
     ['single-trailing', "name: 'single' trailing\ndescription: Description"],
+    ['invalid-escape', 'name: invalid-escape\ndescription: "bad \\q escape"'],
+    ['unescaped-quote', 'name: unescaped-quote\ndescription: "bad " quote"'],
   ];
   for (const [relative, fields] of cases) {
     const sourceDir = path.join(root, relative);
     await fs.mkdir(sourceDir, { recursive: true });
     await fs.writeFile(path.join(sourceDir, 'SKILL.md'), `---\n${fields}\n---\n`);
   }
-  await writeSkill(root, 'quoted-valid', { name: 'quoted-valid', description: '"Quoted description"' });
 
   const catalog = await discoverCatalog({ catalogRoot: root });
 
-  assert.deepEqual(catalog.skills.map((skill) => skill.name), ['quoted-valid']);
+  assert.equal(catalog.skills.length, 0);
   for (const [relative] of cases) {
-    assert.ok(catalog.invalid.some((entry) => entry.relativeSource === relative && /quote|single-line|frontmatter/i.test(entry.reason)));
+    assert.ok(catalog.invalid.some((entry) => entry.relativeSource === relative && /quote|escape|trailing|frontmatter/i.test(entry.reason)));
   }
 });
 
