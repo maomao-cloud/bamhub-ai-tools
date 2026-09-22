@@ -197,14 +197,26 @@ function createSession(io) {
   return { confirm, line, select, cleanup };
 }
 
+const SECRET_LIKE_KEY = /(?:pass(?:word)?|secret|token|api[-_]?key|credential|private[-_]?key|auth)/i;
+
+function sanitizePreviewValue(value, seen = new WeakSet()) {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return '[Circular]';
+  seen.add(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizePreviewValue(item, seen));
+  return Object.fromEntries(
+    Object.keys(value)
+      .filter((key) => !SECRET_LIKE_KEY.test(key))
+      .sort()
+      .map((key) => [key, sanitizePreviewValue(value[key], seen)]),
+  );
+}
+
 function renderEntry(entry) {
-  const fields = [
-    entry?.linkPath ?? entry?.path,
-    entry?.sourceDir ?? entry?.source,
-    entry?.relativeTarget,
-    entry?.reason,
-  ].filter((value) => value !== undefined && value !== '');
-  return fields.length ? fields.join(' | ') : JSON.stringify(entry);
+  const sanitized = sanitizePreviewValue(entry);
+  if (sanitized === undefined) return '';
+  if (sanitized === null || typeof sanitized !== 'object') return String(sanitized);
+  return JSON.stringify(sanitized);
 }
 function renderPlan(plan, io, heading) {
   const target = plan?.target ?? {};
