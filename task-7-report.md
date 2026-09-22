@@ -12,12 +12,12 @@ Implemented the manage-skills CLI surface in the isolated worktree.
 - `scripts/manage-skills/manage-skills`
   - POSIX shebang wrapper resolving its own directory and execing the Node entrypoint.
 - `scripts/manage-skills/tests/cli.test.mjs`
-  - TDD coverage for invalid commands, DSH target resolution, target/runtime conflict, missing desired state, selector aliases, plan/apply/disable-all, JSON stdout and stderr diagnostics, exit codes, non-interactive confirmation, default interactive delegation, and wrapper executable/shebang behavior.
+  - TDD coverage for invalid commands, DSH target resolution, target/runtime conflict, exact desired-state validation, selector aliases, plan/apply/disable-all, interactive approval/rejection before transaction, runtime-all filtering, JSON stdout and stderr diagnostics, exit codes, non-interactive confirmation, default interactive delegation, and wrapper execution/syntax behavior.
 
 ## Verification
 
-- Focused: `node --test scripts/manage-skills/tests/cli.test.mjs` — 9 passed.
-- Full manage-skills suite: `node --test scripts/manage-skills/tests/*.test.mjs` — 99 passed.
+- Focused: `node --test scripts/manage-skills/tests/cli.test.mjs` — 13 passed.
+- Full manage-skills suite: `node --test scripts/manage-skills/tests/*.test.mjs` — 103 passed.
 - Syntax: `node --check` passed for the CLI and all manage-skills `.mjs` modules/tests.
 - Shell: `sh -n scripts/manage-skills/manage-skills` passed.
 - Executable: wrapper has executable mode.

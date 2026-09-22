@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import path from 'node:path';
 import process from 'node:process';
 
 import { resolveCatalog, discoverCatalog, resolveSelectors } from './lib/catalog.mjs';
@@ -11,7 +10,6 @@ import { applyPlanSet } from './lib/transaction.mjs';
 import { confirmPlanSet, runInteractive } from './lib/interactive.mjs';
 
 const COMMANDS = new Set(['status', 'plan', 'apply']);
-const ARGUMENT_ERROR = 2;
 
 function cliError(code, message, exitCode = 2, details = {}) {
   const error = new Error(message);
@@ -51,9 +49,6 @@ function parseArgs(argv) {
   if (command === 'status' && (options.enables.length || options['disable-all'])) throw cliError('INVALID_ARGUMENT', 'status does not accept desired-state options');
   if (command === 'plan' && options['disable-all'] === undefined && options.enables.length === 0) throw cliError('DESIRED_STATE_REQUIRED', 'plan requires --enable or --disable-all');
   if (command === 'apply' && options['non-interactive'] && !options.enables.length && !options['disable-all']) throw cliError('DESIRED_STATE_REQUIRED', 'apply requires --enable, --disable-all, or interactive selection');
-  if (command === 'apply' && !options.yes && !options['dry-run'] && (options['non-interactive'] || options.enables.length || options['disable-all'])) {
-    throw cliError('CONFIRMATION_REQUIRED', 'apply requires --yes in non-interactive mode');
-  }
   if (command === 'apply' && options['non-interactive'] && !options.yes) throw cliError('CONFIRMATION_REQUIRED', '--non-interactive apply requires --yes');
   return options;
 }
@@ -90,7 +85,10 @@ async function resolveContext(options) {
     throw error;
   }
   const runtimes = await detectRuntimeTargets({ env: process.env });
-  const selected = await resolveTargetSelection({ runtimes, customPath: options.target, selectedIds: options.runtimes });
+  const selectionRuntimes = options.runtimes.includes('all')
+    ? runtimes.filter((runtime) => runtime.exists)
+    : runtimes;
+  const selected = await resolveTargetSelection({ runtimes: selectionRuntimes, customPath: options.target, selectedIds: options.runtimes });
   if (!selected.length) throw cliError('TARGET_REQUIRED', 'At least one target must be selected');
   const targets = [];
   for (const candidate of selected) {
@@ -128,12 +126,21 @@ async function executeExplicit(options, streams = { stdout: process.stdout, stde
     }
     return reportFor({ ok: true, exitCode: 0, catalog: catalogReport, targets: reports });
   }
+  if (options.command === 'apply' && !options.enables.length && !options['disable-all']) {
+    throw cliError('DESIRED_STATE_REQUIRED', 'apply requires exactly one desired state: --enable, --disable-all, or interactive selection');
+  }
   const desiredResult = options['disable-all'] ? { selections: [], errors: [] } : resolveSelectors(options.enables.map(selectorValue), catalog);
   if (desiredResult.errors.length) throw cliError('SELECTOR_INVALID', desiredResult.errors.map((item) => item.reason).join('; '), 2);
   const planSet = await buildPlanSet({ targets, catalog, desiredSelections: desiredResult.selections, options: { disableAll: Boolean(options['disable-all']), manifestByTarget: manifests } });
   const plans = planSet.plans;
   const targetReports = plans.map((plan) => ({ target: publicTarget(plan.target), entries: null, plan, result: null }));
   if (options.command === 'plan' || options['dry-run']) return reportFor({ ok: true, exitCode: 0, catalog: catalogReport, targets: targetReports });
+  const interactive = Boolean(streams.stdin?.isTTY && streams.stdout?.isTTY);
+  if (!options.yes && !options['non-interactive']) {
+    if (!interactive) throw cliError('CONFIRMATION_REQUIRED', 'apply requires --yes in non-interactive mode');
+    const approved = await confirmPlanSet(planSet, { input: streams.stdin, output: streams.stdout, isTTY: true });
+    if (!approved) throw cliError('CANCELLED', 'Apply cancelled', 2);
+  }
   const result = await applyPlanSet(planSet, { state: {} });
   for (let i = 0; i < targetReports.length; i += 1) targetReports[i].result = result.targets[i];
   return reportFor({ ok: result.exitCode === 0, exitCode: result.exitCode, catalog: catalogReport, targets: targetReports });
@@ -160,7 +167,10 @@ export async function main(argv = process.argv.slice(2), streams = process) {
   let options;
   try {
     options = parseArgs(argv);
-    const report = options.command === 'interactive' ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
+    const tty = Boolean(streams.stdin?.isTTY && streams.stdout?.isTTY);
+    const needsInteractiveSelection = options.command === 'interactive'
+      || (options.command === 'apply' && !options.enables.length && !options['disable-all'] && !options['dry-run'] && tty);
+    const report = needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
     writeOutput(report, { json: Boolean(options.json) }, streams);
     return report.exitCode;
   } catch (error) {

@@ -4,7 +4,9 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { PassThrough } from 'node:stream';
 import { access, constants } from 'node:fs/promises';
+import { main } from '../manage-skills.mjs';
 
 const root = path.resolve(new URL('..', import.meta.url).pathname, '..', '..');
 const entry = path.join(root, 'scripts/manage-skills/manage-skills.mjs');
@@ -24,14 +26,36 @@ async function fixture() {
   return { dir, catalog, target, home, env: { ...process.env, HOME: home, DSH_HOME: path.join(home, 'dsh'), XDG_STATE_HOME: path.join(dir, 'state') } };
 }
 
-function run(args, env = {}) {
+function run(args, env = {}, command = process.execPath) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entry, ...args], { cwd: root, env: { ...process.env, ...env } });
+    const child = spawn(command, command === process.execPath ? [entry, ...args] : args, { cwd: root, env: { ...process.env, ...env } });
     let stdout = ''; let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
   });
+}
+
+async function runTTY(args, env, answer) {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  stdin.isTTY = true;
+  stdout.isTTY = true;
+  let output = ''; let errors = '';
+  stdout.on('data', (chunk) => { output += chunk; });
+  stderr.on('data', (chunk) => { errors += chunk; });
+  const previous = {};
+  for (const [key, value] of Object.entries(env)) { previous[key] = process.env[key]; process.env[key] = value; }
+  try {
+    const result = main(args, { stdin, stdout, stderr });
+    stdin.end(answer);
+    return { code: await result, stdout: output, stderr: errors };
+  } finally {
+    for (const key of Object.keys(env)) {
+      if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
+    }
+  }
 }
 
 test.after(async () => Promise.all(tempRoots.map((dir) => fs.rm(dir, { recursive: true, force: true }))));
@@ -85,6 +109,46 @@ test('non-interactive apply requires --yes', async () => {
   const f = await fixture();
   const result = await run(['apply', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha', '--non-interactive'], f.env);
   assert.equal(result.code, 2);
+});
+
+test('interactive TTY apply confirms enable plan before transaction', async () => {
+  const f = await fixture();
+  const approved = await runTTY(['apply', '--catalog', f.catalog, '--target', f.target, '--enable', 'alpha'], f.env, 'y');
+  assert.equal(approved.code, 0, `${approved.stdout}\n${approved.stderr}`);
+  assert.equal((await fs.lstat(path.join(f.target, 'alpha'))).isSymbolicLink(), true);
+
+  const rejectedTarget = path.join(f.dir, 'rejected-target');
+  await fs.mkdir(rejectedTarget);
+  const rejected = await runTTY(['apply', '--catalog', f.catalog, '--target', rejectedTarget, '--disable-all'], f.env, 'n');
+  assert.equal(rejected.code, 2, `${rejected.stdout}\n${rejected.stderr}`);
+  await assert.rejects(fs.lstat(path.join(rejectedTarget, 'alpha')), { code: 'ENOENT' });
+});
+
+test('dry-run requires exactly one desired state', async () => {
+  const f = await fixture();
+  const result = await run(['apply', '--catalog', f.catalog, '--target', f.target, '--dry-run'], f.env);
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /desired/i);
+});
+
+test('runtime all excludes missing standard runtime directories', async () => {
+  const f = await fixture();
+  const missing = await run(['apply', '--catalog', f.catalog, '--runtime', 'all', '--enable', 'alpha', '--yes'], f.env);
+  assert.equal(missing.code, 2);
+  assert.match(missing.stderr, /target|runtime/i);
+
+  await fs.mkdir(path.join(f.env.DSH_HOME, 'skills'));
+  const existing = await run(['plan', '--catalog', f.catalog, '--runtime', 'all', '--enable', 'alpha', '--json'], f.env);
+  assert.equal(existing.code, 0, existing.stderr);
+  const report = JSON.parse(existing.stdout);
+  assert.deepEqual(report.targets.map(({ target }) => target.id), ['dsh']);
+});
+
+test('wrapper executes status command', async () => {
+  const f = await fixture();
+  const result = await run(['status', '--catalog', f.catalog, '--runtime', 'dsh', '--json'], f.env, wrapper);
+  assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(JSON.parse(result.stdout).ok, true);
 });
 
 test('default command delegates to interactive interface', async () => {
