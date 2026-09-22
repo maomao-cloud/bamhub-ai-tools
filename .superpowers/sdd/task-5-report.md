@@ -67,3 +67,16 @@ Interactive and CLI code were not implemented.
 - Red: after adding the new tests, `node --test scripts/manage-skills/tests/transaction.test.mjs` reported 23 passing and 3 failing tests: same-target symlink replacement was not detected, structured mismatches were absent from the failure result, and unknown journal fields were accepted.
 - Green: after implementation, `node --test scripts/manage-skills/tests/transaction.test.mjs` passed 26/26 tests.
 - Full verification: `node --test scripts/manage-skills/tests/*.test.mjs` passed 75/75 tests; `git diff --check` passed.
+
+## Quarantine ownership closure
+
+- Each transaction creates a unique quarantine root and marker token once, and journals strict `quarantineToken`/`quarantineCreated` ownership fields.
+- Recovery and successful cleanup validate the quarantine boundary, token-derived basename, non-symlink root, marker presence, and exact marker content before any rename or recursive removal; invalid or external roots remain untouched with their journals.
+- Create-only transactions do not require an unused quarantine root during recovery, while existing roots are still marker-validated before cleanup.
+- Added coverage for pre-existing parent directories, missing/wrong/mismatched markers and tokens, valid recovery/cleanup, create-only recovery, and preservation of external content.
+
+### TDD evidence
+
+- Red: newly added ownership tests failed because cleanup left the transaction-created root behind.
+- Green: `node --test scripts/manage-skills/tests/transaction.test.mjs` passed 30/30 tests.
+- Full verification: `node --test scripts/manage-skills/tests/*.test.mjs` passed 79/79 tests; `git diff --check` passed.

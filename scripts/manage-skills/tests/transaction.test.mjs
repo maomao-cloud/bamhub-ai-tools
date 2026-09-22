@@ -90,13 +90,16 @@ test('source replacement is a conflict and never overwrites the target link', as
 test('recovery restores quarantined paths from an interrupted journal', async () => {
   const f = await fixture();
   const original = path.join(f.targetRoot, 'old');
-  const quarantine = path.join(path.dirname(f.targetRoot), 'quarantine-test', 'old');
-  await fs.mkdir(path.dirname(quarantine), { recursive: true });
+  const quarantineToken = '11111111-1111-4111-8111-111111111111';
+  const quarantineRoot = path.join(path.dirname(f.targetRoot), `.manage-skills-quarantine-${quarantineToken}`);
+  const quarantine = path.join(quarantineRoot, 'old');
+  await fs.mkdir(quarantineRoot, { recursive: true });
+  await fs.writeFile(path.join(quarantineRoot, '.manage-skills-quarantine-marker'), quarantineToken);
   await fs.writeFile(original, 'old');
   await fs.rename(original, quarantine);
   const journal = path.join(f.stateRoot, 'journal-test.json');
   await fs.mkdir(f.stateRoot, { recursive: true });
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: quarantineRoot, quarantineToken, quarantineCreated: true, operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, true);
   assert.equal(await fs.readFile(original, 'utf8'), 'old');
@@ -164,13 +167,16 @@ test('post-verification rejects a link that is no longer manifest-owned', async 
 test('recovery preserves quarantine when original path is occupied', async () => {
   const f = await fixture();
   const original = path.join(f.targetRoot, 'old');
-  const quarantine = path.join(path.dirname(f.targetRoot), 'quarantine-occupied', 'old');
-  await fs.mkdir(path.dirname(quarantine), { recursive: true });
+  const quarantineToken = '22222222-2222-4222-8222-222222222222';
+  const quarantineRoot = path.join(path.dirname(f.targetRoot), `.manage-skills-quarantine-${quarantineToken}`);
+  const quarantine = path.join(quarantineRoot, 'old');
+  await fs.mkdir(quarantineRoot, { recursive: true });
+  await fs.writeFile(path.join(quarantineRoot, '.manage-skills-quarantine-marker'), quarantineToken);
   await fs.writeFile(quarantine, 'quarantined');
   await fs.writeFile(original, 'new occupant');
   const journal = path.join(f.stateRoot, 'journal-occupied.json');
   await fs.mkdir(f.stateRoot, { recursive: true });
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: quarantineRoot, quarantineToken, quarantineCreated: true, operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, false);
   assert.equal(result.conflicts.length, 1);
@@ -344,6 +350,71 @@ test('post-verification failure preserves structured mismatches without error in
   assert.equal(detail.mismatches[0].path.endsWith('/alpha'), true);
   assert.equal('cause' in detail, false);
   assert.doesNotThrow(() => JSON.stringify(detail));
+});
+
+test('recovery refuses an existing non-transaction directory in the target parent', async () => {
+  const f = await fixture();
+  const token = '33333333-3333-4333-8333-333333333333';
+  const quarantine = path.join(path.dirname(f.targetRoot), `.manage-skills-quarantine-${token}`);
+  const external = path.join(quarantine, 'external-content');
+  await fs.mkdir(quarantine, { recursive: true });
+  await fs.writeFile(external, 'must survive');
+  const original = path.join(f.targetRoot, 'old');
+  const journal = path.join(f.stateRoot, 'existing-directory.json');
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine, quarantineToken: token, quarantineCreated: true, operations: [{ type: 'quarantine', original, quarantine: path.join(quarantine, 'old'), status: 'done' }] }));
+  await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: journal }), { code: 'JOURNAL_MALFORMED' });
+  assert.equal(await fs.readFile(external, 'utf8'), 'must survive');
+  assert.equal(await fs.lstat(journal).then(() => true, () => false), true);
+});
+
+test('recovery preserves journal and quarantine when marker is missing, wrong, or token mismatches', async () => {
+  const cases = [
+    ['missing-marker', null, '44444444-4444-4444-8444-444444444444'],
+    ['wrong-marker', 'wrong-token', '55555555-5555-4555-8555-555555555555'],
+    ['token-mismatch', '66666666-6666-4666-8666-666666666666', '77777777-7777-4777-8777-777777777777'],
+  ];
+  for (const [name, marker, token] of cases) {
+    const f = await fixture();
+    const rootToken = name === 'token-mismatch' ? '88888888-8888-4888-8888-888888888888' : token;
+    const quarantineRoot = path.join(path.dirname(f.targetRoot), `.manage-skills-quarantine-${rootToken}`);
+    const quarantined = path.join(quarantineRoot, 'old');
+    const original = path.join(f.targetRoot, 'old');
+    const journal = path.join(f.stateRoot, `${name}.json`);
+    await fs.mkdir(quarantineRoot, { recursive: true });
+    if (marker !== null) await fs.writeFile(path.join(quarantineRoot, '.manage-skills-quarantine-marker'), marker);
+    await fs.writeFile(quarantined, 'protected');
+    await fs.mkdir(f.stateRoot, { recursive: true });
+    await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: quarantineRoot, quarantineToken: token, quarantineCreated: true, operations: [{ type: 'quarantine', original, quarantine: quarantined, status: 'done' }] }));
+    await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: journal }), { code: 'JOURNAL_MALFORMED' }, name);
+    assert.equal(await fs.readFile(quarantined, 'utf8'), 'protected', name);
+    assert.equal(await fs.lstat(journal).then(() => true, () => false), true, name);
+  }
+});
+
+test('valid marker permits recovery and successful cleanup removes only the owned quarantine', async () => {
+  const f = await fixture();
+  const first = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot } });
+  assert.equal(first.exitCode, 0);
+  const manifest = await loadManifest({ stateRoot: f.stateRoot, targetIdentity: { ...f.target, catalogIdentity: f.catalog } });
+  const empty = await buildPlanSet({ targets: [f.target], catalog: f.cat, desiredSelections: [], options: { disableAll: true, manifestByTarget: new Map([[f.target.canonicalPath, manifest]]) } });
+  const removed = await applyPlanSet(empty, { state: { stateRoot: f.stateRoot } });
+  assert.equal(removed.exitCode, 0, JSON.stringify(removed));
+  assert.equal((await fs.readdir(path.dirname(f.targetRoot))).some((name) => name.startsWith('.manage-skills-quarantine-')), false);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
+test('create-only recovery does not require an unused quarantine root', async () => {
+  const f = await fixture();
+  const token = '99999999-9999-4999-8999-999999999999';
+  const journal = path.join(f.stateRoot, 'create-only.json');
+  const linkPath = path.join(f.targetRoot, 'alpha');
+  await fs.symlink(f.sourceDir, linkPath, 'dir');
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: path.join(path.dirname(f.targetRoot), `.manage-skills-quarantine-${token}`), quarantineToken: token, quarantineCreated: true, operations: [{ type: 'create', linkPath, sourceDir: f.sourceDir, status: 'done' }] }));
+  const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
+  assert.equal(result.recovered, true);
+  assert.equal(await fs.lstat(linkPath).catch(() => null), null);
 });
 
 test('journal recovery rejects unknown fields and incomplete schemas', async () => {

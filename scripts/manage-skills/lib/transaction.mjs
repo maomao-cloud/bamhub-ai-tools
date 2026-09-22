@@ -234,8 +234,13 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     journal = journalName(stateRoot);
     result.journal = journal;
     oldManifest = await currentManifest(plan, state);
-    const quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${crypto.randomUUID()}`);
-    record = { version: JOURNAL_VERSION, state: 'prepared', target: plan.target, catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine };
+    const quarantineToken = crypto.randomUUID();
+    const quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${quarantineToken}`);
+    const quarantineMarker = path.join(quarantine, '.manage-skills-quarantine-marker');
+    await fs.mkdir(quarantine, { recursive: false });
+    await fs.writeFile(quarantineMarker, quarantineToken, { flag: 'wx' });
+    quarantineCreated = true;
+    record = { version: JOURNAL_VERSION, state: 'prepared', target: plan.target, catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine, quarantineToken, quarantineCreated: true };
     await fs.mkdir(stateRoot, { recursive: true });
     await writeJournal(journal, record);
     const snapshots = { target: { ...plan.target }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), manifestFingerprint: manifestFingerprint(oldManifest), sources: new Map(), links: new Map() };
@@ -265,7 +270,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     }
     for (const item of plan.remove) {
       await recheckPlan(plan, snapshots, await currentManifest(plan, state));
-      if (!quarantineCreated) { await fs.mkdir(quarantine); quarantineCreated = true; }
+      if (!quarantineCreated) quarantineCreated = true;
       const destination = path.join(quarantine, path.basename(item.linkPath));
       const operation = { type: 'quarantine', original: item.linkPath, quarantine: destination, status: 'pending' };
       record.operations.push(operation);
@@ -294,7 +299,10 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     record.state = 'committed';
     await writeJournal(journal, record);
     result.verified = true;
-    if (quarantineCreated) await fs.rm(record.quarantine, { recursive: true, force: true });
+    if (quarantineCreated && await lstatOrNull(record.quarantine)) {
+      await validateQuarantineOwnership(record);
+      await fs.rm(record.quarantine, { recursive: true, force: true });
+    }
     await fs.rm(journal, { force: true });
     return result;
   } catch (error) {
@@ -392,10 +400,27 @@ function validateJournalManifest(manifest, label) {
   }
 }
 
+async function validateQuarantineOwnership(journal) {
+  if (journal.quarantineCreated !== true) return;
+  const root = await fs.lstat(journal.quarantine).catch((error) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  if (!root || !root.isDirectory() || root.isSymbolicLink()) throw journalError('quarantine root is missing or invalid');
+  const markerPath = path.join(journal.quarantine, '.manage-skills-quarantine-marker');
+  const marker = await fs.lstat(markerPath).catch((error) => {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  });
+  if (!marker || !marker.isFile() || marker.isSymbolicLink()) throw journalError('quarantine marker is missing or invalid');
+  if (await fs.readFile(markerPath, 'utf8') !== journal.quarantineToken) throw journalError('quarantine marker does not match token');
+}
+
 function validateJournal(journal, stateRoot, journalPath) {
   if (!plainObject(journal) || journal.version !== JOURNAL_VERSION || !JOURNAL_STATES.has(journal.state) || journal.state === 'committed' || !Array.isArray(journal.operations)) throw journalError('journal schema or state is invalid');
-  onlyFields(journal, new Set(['version', 'state', 'target', 'catalog', 'planFingerprint', 'oldManifest', 'operations', 'quarantine', 'manifest', 'error', 'recoveryError']), 'journal');
+  onlyFields(journal, new Set(['version', 'state', 'target', 'catalog', 'planFingerprint', 'oldManifest', 'operations', 'quarantine', 'quarantineToken', 'quarantineCreated', 'manifest', 'error', 'recoveryError']), 'journal');
   if (typeof journal.planFingerprint !== 'string' || !journal.planFingerprint) throw journalError('journal planFingerprint is invalid');
+  if (typeof journal.quarantineToken !== 'string' || !journal.quarantineToken || !/^[0-9a-f-]{36}$/i.test(journal.quarantineToken) || typeof journal.quarantineCreated !== 'boolean') throw journalError('journal quarantine ownership is invalid');
   if (!('oldManifest' in journal)) throw journalError('journal oldManifest is required');
   validateJournalManifest(journal.oldManifest, 'journal.oldManifest');
   if ('manifest' in journal) validateJournalManifest(journal.manifest, 'journal.manifest');
@@ -408,6 +433,8 @@ function validateJournal(journal, stateRoot, journalPath) {
   const quarantineRoot = absolutePath(journal.quarantine, 'journal quarantine');
   if (!inside(file, root)) throw journalError('journal path is outside state root');
   if (!inside(quarantineRoot, path.dirname(targetRoot)) || quarantineRoot === targetRoot) throw journalError('journal quarantine is outside target boundary');
+  if (path.basename(quarantineRoot) !== `.manage-skills-quarantine-${journal.quarantineToken}`) throw journalError('journal quarantine ownership is inconsistent');
+  if (journal.quarantineCreated !== true && journal.operations.some((operation) => operation.type === 'quarantine')) throw journalError('journal quarantine operation lacks created quarantine');
   for (const operation of journal.operations) {
     if (!plainObject(operation) || !['create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
     if (operation.type === 'create') {
@@ -438,6 +465,7 @@ export async function recoverJournal({ stateRoot, journalPath }) {
     throw journalError('journal is not valid JSON', { cause: error });
   }
   validateJournal(journal, root, file);
+  if (journal.quarantineCreated === true && journal.operations.some((operation) => operation.type === 'quarantine' && operation.status === 'done')) await validateQuarantineOwnership(journal);
   const restored = [];
   const rolledBack = [];
   const conflicts = [];
@@ -466,7 +494,10 @@ export async function recoverJournal({ stateRoot, journalPath }) {
     }
     if (conflicts.length) return { recovered: false, restored, rolledBack, conflicts, stateRoot: root, journalPath: file };
     if (journal.oldManifest !== undefined) await restoreOldManifest(root, journal, journal.oldManifest);
-    if (journal.quarantine) await fs.rm(journal.quarantine, { recursive: true, force: true });
+    if (journal.quarantineCreated === true && await lstatOrNull(journal.quarantine)) {
+      await validateQuarantineOwnership(journal);
+      await fs.rm(journal.quarantine, { recursive: true, force: true });
+    }
     await fs.rm(file, { force: true });
     return { recovered: true, restored, rolledBack, conflicts, stateRoot: root, journalPath: file };
   } catch (error) {
