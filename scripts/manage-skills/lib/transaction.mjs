@@ -96,9 +96,14 @@ async function lstatOrNull(file) {
 async function checkLink(item, snapshot, kind) {
   const current = await lstatOrNull(item.linkPath);
   if (kind === 'create') {
-    if (current) throw transactionError('TARGET_PATH_CHANGED', `target link path is occupied: ${item.linkPath}`, { identity: { dev: current.dev, ino: current.ino, type: current.isSymbolicLink() ? 'symlink' : current.isDirectory() ? 'directory' : 'file' } });
-    return;
+    if (!current) return;
+    if (snapshot?.type === 'created' && current.isSymbolicLink()) {
+      const linkText = await fs.readlink(item.linkPath);
+      if (normalizeRelative(linkText) === normalizeRelative(item.relativeTarget)) return;
+    }
+    throw transactionError('TARGET_PATH_CHANGED', `target link path is occupied: ${item.linkPath}`, { identity: { dev: current.dev, ino: current.ino, type: current.isSymbolicLink() ? 'symlink' : current.isDirectory() ? 'directory' : 'file' } });
   }
+  if (snapshot?.type === 'quarantined' && !current) return;
   if (!current || !current.isSymbolicLink()) throw transactionError('TARGET_PATH_CHANGED', `removal path is no longer a symlink: ${item.linkPath}`);
   const linkText = await fs.readlink(item.linkPath);
   if (snapshot && (!sameIdentityFields(current, snapshot, ['dev', 'ino']) || snapshot.type !== 'symlink' || snapshot.linkText !== linkText)) throw transactionError('TARGET_PATH_CHANGED', `removal link identity changed: ${item.linkPath}`);
@@ -118,7 +123,11 @@ function manifestForPlan(plan) {
 }
 
 function planFingerprint(plan) {
-  return plan.fingerprint ?? linkFingerprint({ target: plan.target, catalog: plan.catalog, desired: plan.desired, create: plan.create, remove: plan.remove, keep: plan.keep, conflicts: plan.conflicts, protected: plan.protected });
+  return linkFingerprint({ target: plan.target, catalog: plan.catalog, desired: plan.desired, create: plan.create, remove: plan.remove, keep: plan.keep, conflicts: plan.conflicts, protected: plan.protected });
+}
+
+function manifestFingerprint(manifest) {
+  return linkFingerprint(manifest ?? null);
 }
 
 function manifestOwns(manifest, item) {
@@ -129,6 +138,7 @@ function manifestOwns(manifest, item) {
 
 async function recheckPlan(plan, snapshots, manifest) {
   if (planFingerprint(plan) !== snapshots.planFingerprint) throw transactionError('PLAN_CHANGED', 'transaction plan changed');
+  if (manifestFingerprint(manifest) !== snapshots.manifestFingerprint) throw transactionError('MANIFEST_CHANGED', 'manifest changed during transaction');
   await checkTargetSnapshot(plan, snapshots.target);
   await checkCatalogSnapshot(plan, snapshots.catalog);
   for (const item of plan.desired) await sourceIdentity(item, snapshots.sources.get(item.sourceDir));
@@ -176,22 +186,25 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     result.skipped = [...plan.create, ...plan.remove, ...plan.keep, ...plan.conflicts, ...plan.protected];
     return result;
   }
-  const stateRoot = stateRootFor(plan, state);
-  const journal = journalName(stateRoot);
-  result.journal = journal;
-  const oldManifest = await currentManifest(plan, state).catch((error) => { throw error; });
-  const record = { version: JOURNAL_VERSION, state: 'prepared', target: plan.target, catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [] };
-  const quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${crypto.randomUUID()}`);
-  record.quarantine = quarantine;
+  let stateRoot;
+  let journal;
+  let record;
+  let oldManifest;
   let quarantineCreated = false;
   let mutationCount = 0;
   const failPoint = () => {
     if (Number.isInteger(state.failAfter) && mutationCount >= state.failAfter) throw transactionError('INJECTED_FAILURE', 'injected transaction failure');
   };
   try {
+    stateRoot = stateRootFor(plan, state);
+    journal = journalName(stateRoot);
+    result.journal = journal;
+    oldManifest = await currentManifest(plan, state);
+    const quarantine = path.join(path.dirname(targetPath(plan.target)), `.manage-skills-quarantine-${crypto.randomUUID()}`);
+    record = { version: JOURNAL_VERSION, state: 'prepared', target: plan.target, catalog: plan.catalog, planFingerprint: planFingerprint(plan), oldManifest: oldManifest ?? null, operations: [], quarantine };
     await fs.mkdir(stateRoot, { recursive: true });
     await writeJournal(journal, record);
-    const snapshots = { target: { ...plan.target }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), sources: new Map(), links: new Map() };
+    const snapshots = { target: { ...plan.target }, catalog: { ...plan.catalog }, planFingerprint: planFingerprint(plan), manifestFingerprint: manifestFingerprint(oldManifest), sources: new Map(), links: new Map() };
     for (const item of plan.desired) snapshots.sources.set(item.sourceDir, { ...item.sourceIdentity });
     for (const item of plan.remove) {
       const current = await lstatOrNull(item.linkPath);
@@ -207,6 +220,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       record.operations.push(operation);
       await writeJournal(journal, record);
       await fs.symlink(item.relativeTarget, item.linkPath, 'dir');
+      snapshots.links.set(item.linkPath, { type: 'created' });
       operation.status = 'done';
       result.applied.push(item.linkPath);
       mutationCount += 1;
@@ -221,6 +235,7 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       record.operations.push(operation);
       await writeJournal(journal, record);
       await fs.rename(item.linkPath, destination);
+      snapshots.links.set(item.linkPath, { type: 'quarantined' });
       operation.status = 'done';
       result.applied.push(item.linkPath);
       mutationCount += 1;
@@ -229,6 +244,8 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     }
     const nextManifest = manifestForPlan(plan);
     if (beforeManifest) await beforeManifest(plan, nextManifest);
+    const currentBeforeWrite = await currentManifest(plan, state);
+    await recheckPlan(plan, snapshots, currentBeforeWrite);
     record.manifest = nextManifest;
     await writeManifestAtomic({ stateRoot, targetIdentity: { ...plan.target, catalogIdentity: plan.catalog }, manifest: nextManifest });
     record.state = 'manifest-written';
@@ -241,19 +258,21 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
     record.state = 'committed';
     await writeJournal(journal, record);
     result.verified = true;
-    if (quarantineCreated) await fs.rm(quarantine, { recursive: true, force: true });
+    if (quarantineCreated) await fs.rm(record.quarantine, { recursive: true, force: true });
     await fs.rm(journal, { force: true });
     return result;
   } catch (error) {
     result.failed.push(failure(error));
-    record.state = 'failed';
-    record.error = failure(error);
-    try {
-      if (record.manifest && record.state !== 'committed') await restoreOldManifest(stateRoot, plan, oldManifest);
-    } catch (restoreError) {
-      record.recoveryError = failure(restoreError);
+    if (record) {
+      record.state = 'failed';
+      record.error = failure(error);
+      try {
+        if (record.manifest && record.state !== 'committed') await restoreOldManifest(stateRoot, plan, oldManifest);
+      } catch (restoreError) {
+        record.recoveryError = failure(restoreError);
+      }
+      await writeJournal(journal, record).catch(() => {});
     }
-    await writeJournal(journal, record).catch(() => {});
     return result;
   }
 }
@@ -297,15 +316,40 @@ function journalError(message, details = {}) {
   return transactionError('JOURNAL_MALFORMED', message, details);
 }
 
+function inside(candidate, root) {
+  const relative = path.relative(root, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+function absolutePath(value, label) {
+  if (typeof value !== 'string' || !path.isAbsolute(value)) throw journalError(`${label} must be absolute`);
+  return path.resolve(value);
+}
+
 function validateJournal(journal, stateRoot, journalPath) {
-  if (!journal || journal.version !== JOURNAL_VERSION || !JOURNAL_STATES.has(journal.state) || journal.state === 'committed' || !Array.isArray(journal.operations)) throw journalError('journal schema or state is invalid');
+  if (!journal || typeof journal !== 'object' || journal.version !== JOURNAL_VERSION || !JOURNAL_STATES.has(journal.state) || journal.state === 'committed' || !Array.isArray(journal.operations)) throw journalError('journal schema or state is invalid');
+  if (!journal.target || typeof journal.target !== 'object' || !journal.catalog || typeof journal.catalog !== 'object') throw journalError('journal identities are invalid');
   const root = path.resolve(stateRoot);
-  const file = path.resolve(journalPath);
-  if (!file.startsWith(`${root}${path.sep}`)) throw journalError('journal path is outside state root');
+  const file = absolutePath(journalPath, 'journal path');
+  const targetRoot = absolutePath(journal.target.path ?? journal.target.canonicalPath, 'target path');
+  const catalogRoot = absolutePath(journal.catalog.path ?? journal.catalog.canonicalPath, 'catalog path');
+  const quarantineRoot = absolutePath(journal.quarantine, 'journal quarantine');
+  if (!inside(file, root)) throw journalError('journal path is outside state root');
+  if (!inside(quarantineRoot, path.dirname(targetRoot)) || quarantineRoot === targetRoot) throw journalError('journal quarantine is outside target boundary');
   for (const operation of journal.operations) {
-    if (!operation || !['create', 'quarantine'].includes(operation.type) || operation.status !== 'done') throw journalError('journal operation is invalid');
-    if (operation.type === 'create' && (typeof operation.linkPath !== 'string' || typeof operation.sourceDir !== 'string')) throw journalError('create operation is invalid');
-    if (operation.type === 'quarantine' && (typeof operation.original !== 'string' || typeof operation.quarantine !== 'string')) throw journalError('quarantine operation is invalid');
+    if (!operation || !['create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
+    if (operation.type === 'create') {
+      if (typeof operation.linkPath !== 'string' || typeof operation.sourceDir !== 'string') throw journalError('create operation is invalid');
+      const linkPath = absolutePath(operation.linkPath, 'create linkPath');
+      const sourceDir = absolutePath(operation.sourceDir, 'create sourceDir');
+      if (!inside(linkPath, targetRoot) || !inside(sourceDir, catalogRoot)) throw journalError('create operation path is outside its boundary');
+    }
+    if (operation.type === 'quarantine') {
+      if (typeof operation.original !== 'string' || typeof operation.quarantine !== 'string') throw journalError('quarantine operation is invalid');
+      const original = absolutePath(operation.original, 'quarantine original');
+      const operationQuarantine = absolutePath(operation.quarantine, 'quarantine path');
+      if (!inside(original, targetRoot) || !inside(operationQuarantine, quarantineRoot)) throw journalError('quarantine operation path is outside its boundary');
+    }
   }
   return journal;
 }
@@ -325,6 +369,7 @@ export async function recoverJournal({ stateRoot, journalPath }) {
   const conflicts = [];
   try {
     for (const operation of [...journal.operations].reverse()) {
+      if (operation.status !== 'done') continue;
       if (operation.type === 'quarantine') {
         const quarantine = await lstatOrNull(operation.quarantine);
         if (!quarantine) continue;

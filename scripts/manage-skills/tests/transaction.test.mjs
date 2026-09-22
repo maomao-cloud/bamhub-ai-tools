@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { buildPlanSet } from '../lib/plan.mjs';
 import { applyPlanSet, verifyPlan, recoverJournal } from '../lib/transaction.mjs';
-import { acquireTargetLock, loadManifest } from '../lib/state.mjs';
+import { acquireTargetLock, loadManifest, manifestIdentity } from '../lib/state.mjs';
 
 const roots = [];
 async function tempDir() {
@@ -90,12 +90,13 @@ test('source replacement is a conflict and never overwrites the target link', as
 test('recovery restores quarantined paths from an interrupted journal', async () => {
   const f = await fixture();
   const original = path.join(f.targetRoot, 'old');
-  const quarantine = path.join(f.stateRoot, 'quarantine-test', 'old');
+  const quarantine = path.join(path.dirname(f.targetRoot), 'quarantine-test', 'old');
   await fs.mkdir(path.dirname(quarantine), { recursive: true });
   await fs.writeFile(original, 'old');
   await fs.rename(original, quarantine);
   const journal = path.join(f.stateRoot, 'journal-test.json');
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, true);
   assert.equal(await fs.readFile(original, 'utf8'), 'old');
@@ -163,12 +164,13 @@ test('post-verification rejects a link that is no longer manifest-owned', async 
 test('recovery preserves quarantine when original path is occupied', async () => {
   const f = await fixture();
   const original = path.join(f.targetRoot, 'old');
-  const quarantine = path.join(f.stateRoot, 'quarantine-occupied', 'old');
+  const quarantine = path.join(path.dirname(f.targetRoot), 'quarantine-occupied', 'old');
   await fs.mkdir(path.dirname(quarantine), { recursive: true });
   await fs.writeFile(quarantine, 'quarantined');
   await fs.writeFile(original, 'new occupant');
   const journal = path.join(f.stateRoot, 'journal-occupied.json');
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, false);
   assert.equal(result.conflicts.length, 1);
@@ -240,4 +242,72 @@ test('verification failure restores the manifest written by the transaction', as
   assert.equal(await fs.lstat(report.targets[0].journal).then(() => true, () => false), true);
   await recoverJournal({ stateRoot: f.stateRoot, journalPath: report.targets[0].journal });
   assert.equal(await fs.lstat(report.targets[0].journal).catch(() => null), null);
+});
+
+test('external manifest changes are rejected even when the removal entry is unchanged', async () => {
+  const f = await fixture();
+  const first = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot } });
+  assert.equal(first.exitCode, 0);
+  const manifestFile = (await fs.readdir(f.stateRoot)).find((name) => name.endsWith('.json'));
+  const manifestPath = path.join(f.stateRoot, manifestFile);
+  const manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+  const empty = await buildPlanSet({ targets: [f.target], catalog: f.cat, desiredSelections: [], options: { disableAll: true, manifestByTarget: new Map([[f.target.canonicalPath, manifest]]) } });
+  const report = await applyPlanSet(empty, { state: { stateRoot: f.stateRoot }, beforeMutation: async () => {
+    const external = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+    external.links[0].createdAt = '2026-01-01T00:00:00.000Z';
+    await fs.writeFile(manifestPath, JSON.stringify(external));
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].applied.length, 0);
+  assert.equal((await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null))?.isSymbolicLink(), true);
+});
+
+test('identity changes immediately before manifest write prevent the manifest mutation', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeManifest: async () => {
+    await fs.rename(f.catalogRoot, `${f.catalogRoot}-moved`);
+    await fs.mkdir(f.catalogRoot);
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].failed[0].code, 'CATALOG_IDENTITY_CHANGED');
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).then(() => true, () => false), true);
+  assert.equal(await fs.readdir(f.stateRoot).then((names) => names.filter((name) => name.endsWith('.json')).length), 1);
+});
+
+test('recomputed plan content fingerprint rejects tampering of stored fingerprint', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeMutation: async (plan) => {
+    plan.create = [];
+    plan.fingerprint = 'attacker-controlled';
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].failed[0].code, 'PLAN_CHANGED');
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
+test('manifest precheck failures are target-local apply failures', async () => {
+  const first = await fixture();
+  const second = await fixture();
+  await fs.mkdir(first.stateRoot, { recursive: true });
+  const manifestFile = path.join(first.stateRoot, `target-${manifestIdentity({ targetIdentity: first.planSet.plans[0].target }).slice(0, 32)}.json`);
+  await fs.writeFile(manifestFile, '{ malformed');
+  const report = await applyPlanSet({ plans: [first.planSet.plans[0], second.planSet.plans[0]] }, { state: { stateRoot: first.stateRoot } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets.length, 2);
+  assert.equal(report.targets[0].verified, false);
+  assert.equal(report.targets[0].failed.length, 1);
+  assert.equal(report.targets[1].verified, true);
+});
+
+test('recovery rejects external operation paths and inconsistent quarantine', async () => {
+  const f = await fixture();
+  const journal = path.join(f.stateRoot, 'external.json');
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.join(f.targetRoot, 'expected-quarantine'), operations: [{ type: 'create', linkPath: path.join(f.targetRoot, 'alpha'), sourceDir: '/tmp/outside', status: 'done' }] }));
+  await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: journal }), { code: 'JOURNAL_MALFORMED' });
+  assert.equal(await fs.lstat(journal).then(() => true, () => false), true);
+
+  const inconsistent = path.join(f.stateRoot, 'inconsistent.json');
+  await fs.writeFile(inconsistent, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.join(f.targetRoot, 'expected-quarantine'), operations: [{ type: 'quarantine', original: path.join(f.targetRoot, 'alpha'), quarantine: path.join(f.targetRoot, 'other-quarantine', 'alpha'), status: 'done' }] }));
+  await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: inconsistent }), { code: 'JOURNAL_MALFORMED' });
 });
