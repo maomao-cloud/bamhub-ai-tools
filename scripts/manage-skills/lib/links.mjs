@@ -9,23 +9,23 @@ function error(code, message, details = {}) {
   return result;
 }
 
-const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
 function sameIdentity(a, b, fields = ['path', 'canonicalPath', 'dev', 'ino']) {
   return Boolean(a && b) && fields.every((field) => a[field] === b[field]);
 }
 
-function identityPath(identity) {
+export function targetPath(identity) {
   const value = identity?.path ?? identity?.realPath ?? identity?.canonicalPath;
-  return typeof value === 'string' && path.isAbsolute(value) ? path.resolve(value) : null;
+  if (typeof value !== 'string' || !value) throw error('TARGET_IDENTITY_INVALID', 'Target identity must include path, realPath, or canonicalPath');
+  return path.resolve(value);
 }
 
-function normalizeIdentity(identity, { catalog = false } = {}) {
+export function normalizeIdentity(identity, { catalog = false } = {}) {
   if (!identity) return null;
   const result = { ...identity };
-  const absolutePath = identityPath(identity);
-  if (absolutePath) result.path = absolutePath;
-  if (!result.canonicalPath && result.realPath) result.canonicalPath = result.realPath;
+  const pathValue = identity.path ?? identity.realPath ?? identity.canonicalPath;
+  if (typeof pathValue === 'string' && pathValue) result.path = path.resolve(pathValue);
+  const canonicalValue = identity.canonicalPath ?? identity.realPath ?? pathValue;
+  if (typeof canonicalValue === 'string' && canonicalValue) result.canonicalPath = path.resolve(canonicalValue);
   if (catalog) {
     for (const field of ['gitRemote', 'gitCommit']) if (result[field] === undefined) delete result[field];
   }
@@ -79,7 +79,7 @@ export async function validateCatalogSkills(catalog) {
 }
 
 export async function scanTarget({ targetIdentity, catalog, manifest } = {}) {
-  const targetRoot = path.resolve(targetIdentity?.path ?? targetIdentity?.canonicalPath ?? '');
+  const targetRoot = targetPath(targetIdentity);
   let targetStat;
   try {
     targetStat = await fs.lstat(targetRoot);

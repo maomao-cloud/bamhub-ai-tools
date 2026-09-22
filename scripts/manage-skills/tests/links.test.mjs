@@ -258,3 +258,43 @@ test('multiple non-empty targets get independent plans', async () => {
   const result = await buildPlanSet({ targets: [f.targetIdentity, secondIdentity], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], sourceRelative: 'group/alpha', linkName: 'alpha' }] });
   assert.deepEqual(result.plans.map((plan) => plan.create.map((item) => item.linkPath)), [[path.join(f.targetRoot, 'alpha')], [path.join(second, 'alpha')]]);
 });
+
+test('real targets shape matches an existing manifest and keeps the managed link', async () => {
+  const f = await fixture();
+  const alpha = path.join(f.catalogRoot, 'group/alpha');
+  const alphaPath = path.join(f.targetRoot, 'alpha');
+  await fs.symlink(alpha, alphaPath, 'dir');
+  const target = { path: f.targetIdentity.path, realPath: f.targetIdentity.canonicalPath, dev: f.targetIdentity.dev, ino: f.targetIdentity.ino };
+  const manifest = manifestFor({ targetIdentity: f.targetIdentity, catalogIdentity: f.catalogIdentity, links: [
+    entryFor({ linkName: 'alpha', sourceRelative: 'group/alpha', relativeTarget: '../catalog/group/alpha', sourceIdentity: await identity(alpha) }),
+  ] });
+  const result = await buildPlanSet({ targets: [target], catalog: f.catalog, desiredSelections: [{ ...f.catalog.skills[0], sourceRelative: 'group/alpha', linkName: 'alpha' }], options: { manifestByTarget: new Map([[target.realPath, manifest]]) } });
+  assert.equal(result.plans[0].keep.length, 1);
+  assert.equal(result.plans[0].remove.length, 0);
+});
+
+test('realPath-only target identity scans the real target instead of cwd', async () => {
+  const f = await fixture();
+  const alpha = path.join(f.catalogRoot, 'group/alpha');
+  await fs.symlink(alpha, path.join(f.targetRoot, 'alpha'), 'dir');
+  const target = { realPath: f.targetIdentity.canonicalPath, dev: f.targetIdentity.dev, ino: f.targetIdentity.ino };
+  const states = await scanTarget({ targetIdentity: target, catalog: f.catalog });
+  assert.equal(states[0].linkPath, path.join(f.targetIdentity.canonicalPath, 'alpha'));
+  assert.equal(states[0].kind, 'unmanaged-symlink');
+});
+
+test('manifest source disappearance and replacement stay protected and never removable', async () => {
+  const f = await fixture();
+  const missingPath = path.join(f.targetRoot, 'missing');
+  await fs.symlink(path.join(f.catalogRoot, 'group/removed'), missingPath, 'dir');
+  const replacement = path.join(f.catalogRoot, 'group/beta');
+  await fs.symlink(replacement, path.join(f.targetRoot, 'alpha'), 'dir');
+  const manifest = manifestFor({ targetIdentity: f.targetIdentity, catalogIdentity: f.catalogIdentity, links: [
+    entryFor({ linkName: 'missing', sourceRelative: 'group/removed', relativeTarget: '../catalog/group/removed', sourceIdentity: { canonicalPath: path.join(f.catalogRoot, 'group/removed'), dev: 1, ino: 2 } }),
+    entryFor({ linkName: 'alpha', sourceRelative: 'group/alpha', relativeTarget: '../catalog/group/alpha', sourceIdentity: await identity(path.join(f.catalogRoot, 'group/alpha')) }),
+  ] });
+  const result = await buildPlanSet({ targets: [f.targetIdentity], catalog: f.catalog, desiredSelections: [], options: { disableAll: true, manifestByTarget: new Map([[f.targetIdentity.canonicalPath, manifest]]) } });
+  assert.equal(result.plans[0].remove.length, 0);
+  assert.deepEqual(result.plans[0].protected.map((entry) => entry.linkPath).sort(), [path.join(f.targetRoot, 'alpha'), missingPath].sort());
+  assert.ok(result.plans[0].protected.every((entry) => entry.reason));
+});

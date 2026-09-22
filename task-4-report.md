@@ -1,5 +1,7 @@
 # Task 4 Report
 
+This SDD report records the Task 4 implementation artifacts and verification; it is not itself a functional file in the manage-skills runtime.
+
 Implemented desired-state link classification and planning in:
 
 - `scripts/manage-skills/lib/links.mjs`
@@ -36,6 +38,8 @@ Transaction, interactive, and CLI layers were intentionally not implemented.
 
 ## Reviewer follow-up verification
 
-- `node --test scripts/manage-skills/tests/links.test.mjs` — 15 passed.
-- `node --test scripts/manage-skills/tests/*.test.mjs` — 46 passed.
+- `node --test scripts/manage-skills/tests/links.test.mjs` — 18 passed.
+- `node --test scripts/manage-skills/tests/*.test.mjs` — 49 passed.
 - `git diff --check` — clean.
+- Target identities normalize `realPath` to `canonicalPath` consistently in scan and plan paths, including realPath-only inputs.
+- Unmanaged broken links and manifest source disappearance/replacement states remain protected and are never removal candidates.

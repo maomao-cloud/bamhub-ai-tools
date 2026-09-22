@@ -1,32 +1,24 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { scanTarget, error, linkFingerprint, sameIdentity, normalizeRelative, validateCatalogSkills } from './links.mjs';
+import { scanTarget, error, linkFingerprint, sameIdentity, normalizeRelative, normalizeIdentity, targetPath, validateCatalogSkills } from './links.mjs';
 
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 async function catalogIdentity(catalog) {
-  if (catalog.identity) return { ...catalog.identity, path: path.resolve(catalog.identity.path ?? catalog.identity.canonicalPath) };
-  if (catalog.catalogIdentity) return { ...catalog.catalogIdentity, path: path.resolve(catalog.catalogIdentity.path ?? catalog.catalogIdentity.canonicalPath) };
+  if (catalog.identity) return normalizeIdentity(catalog.identity, { catalog: true });
+  if (catalog.catalogIdentity) return normalizeIdentity(catalog.catalogIdentity, { catalog: true });
   const canonicalPath = await fs.realpath(catalog.root);
   const stat = await fs.stat(canonicalPath);
-  return { path: path.resolve(catalog.root), canonicalPath, dev: stat.dev, ino: stat.ino, ...(catalog.gitRemote ? { gitRemote: catalog.gitRemote } : {}), ...(catalog.gitCommit ? { gitCommit: catalog.gitCommit } : {}) };
-}
-
-function targetPath(target) {
-  const value = target?.path ?? target?.realPath ?? target?.canonicalPath;
-  if (typeof value !== 'string') throw error('TARGET_IDENTITY_INVALID', 'Target identity must include path, realPath, or canonicalPath');
-  return path.resolve(value);
-}
-
-function targetKey(target) {
-  return target.canonicalPath ?? target.realPath ?? target.path;
+  return normalizeIdentity({ path: path.resolve(catalog.root), canonicalPath, dev: stat.dev, ino: stat.ino, ...(catalog.gitRemote ? { gitRemote: catalog.gitRemote } : {}), ...(catalog.gitCommit ? { gitCommit: catalog.gitCommit } : {}) }, { catalog: true });
 }
 
 function manifestFor(options, target) {
   const source = options?.manifestByTarget ?? options?.manifests;
-  if (source instanceof Map) return source.get(targetKey(target)) ?? source.get(target.path);
-  if (source && typeof source === 'object') return source[targetKey(target)] ?? source[target.path];
+  const normalized = normalizeIdentity(target);
+  const keys = [normalized.canonicalPath, normalized.path, target?.realPath, target?.canonicalPath, target?.path].filter(Boolean);
+  if (source instanceof Map) return keys.map((key) => source.get(key)).find(Boolean);
+  if (source && typeof source === 'object') return keys.map((key) => source[key]).find(Boolean);
   return options?.manifest;
 }
 
@@ -71,17 +63,17 @@ function validateSelections(selections, catalog, validSkills) {
 
 async function manifestMatches(manifest, target, catalog) {
   if (!manifest) return true;
-  const expectedTarget = { ...target, path: targetPath(target) };
-  const targetMatches = sameIdentity(manifest.target, expectedTarget, ['path', 'canonicalPath', 'dev', 'ino']);
+  const expectedTarget = normalizeIdentity({ ...target, path: targetPath(target) });
+  const targetMatches = sameIdentity(normalizeIdentity(manifest.target), expectedTarget, ['path', 'canonicalPath', 'dev', 'ino']);
   const expectedCatalog = await catalogIdentity(catalog);
-  const catalogMatches = !expectedCatalog || sameIdentity(manifest.catalog, expectedCatalog, ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit']);
+  const catalogMatches = !expectedCatalog || sameIdentity(normalizeIdentity(manifest.catalog, { catalog: true }), normalizeIdentity(expectedCatalog, { catalog: true }), ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit']);
   if (!targetMatches) throw error('MANIFEST_TARGET_MISMATCH', 'Manifest target identity does not match target');
   if (!catalogMatches) throw error('MANIFEST_CATALOG_MISMATCH', 'Manifest catalog identity does not match catalog');
   return true;
 }
 
-async function planFor({ target, catalog, desired, states, manifest, catalogIdentityValue }) {
-  const resolvedTarget = { ...target, path: targetPath(target) };
+async function planFor({ target, catalog, desired, states, catalogIdentityValue }) {
+  const resolvedTarget = normalizeIdentity({ ...target, path: targetPath(target) });
   const create = [];
   const remove = [];
   const keep = [];
@@ -140,7 +132,7 @@ export async function buildPlanSet({ targets, catalog, desiredSelections, option
     const manifest = manifestFor(options, target);
     await manifestMatches(manifest, target, { ...catalog, identity: catalogIdentityValue });
     const states = await scanTarget({ targetIdentity: target, catalog: { ...catalog, identity: catalogIdentityValue }, manifest });
-    const plan = await planFor({ target, catalog, desired, states, manifest, catalogIdentityValue });
+    const plan = await planFor({ target, catalog, desired, states, catalogIdentityValue });
     plan.fingerprint = linkFingerprint({ target: plan.target, catalog: plan.catalog, desired: plan.desired, create: plan.create, remove: plan.remove, keep: plan.keep, conflicts: plan.conflicts, protected: plan.protected });
     plans.push(plan);
     protectedAll.push(...plan.protected);
