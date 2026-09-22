@@ -57,7 +57,8 @@ test('creates link, atomically writes manifest, and post-verifies', async () => 
   assert.equal(await fs.realpath(path.join(f.targetRoot, 'alpha')), await fs.realpath(f.sourceDir));
   const manifest = await loadManifest({ stateRoot: f.stateRoot, targetIdentity: { ...f.target, catalogIdentity: f.catalog } });
   assert.deepEqual(manifest.links.map((entry) => entry.linkName), ['alpha']);
-  assert.equal(await verifyPlan(f.planSet.plans[0]).then((result) => result.ok), true);
+  const writtenManifest = await loadManifest({ stateRoot: f.stateRoot, targetIdentity: { ...f.target, catalogIdentity: f.catalog } });
+  assert.equal(await verifyPlan(f.planSet.plans[0], { manifest: writtenManifest }).then((result) => result.ok), true);
   assert.equal(typeof report.targets[0].journal, 'string');
 });
 
@@ -135,4 +136,108 @@ test('permission failure is reported without claiming verification', async () =>
   const failed = await applyPlanSet(f.planSet, { state: { stateRoot: path.join(f.root, 'state-file') } });
   assert.equal(failed.exitCode, 1);
   assert.equal(failed.targets[0].verified, false);
+});
+
+test('rechecks catalog git identity before the first mutation', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeMutation: async () => {
+    f.planSet.plans[0].catalog.gitCommit = 'changed';
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].applied.length, 0);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
+test('post-verification rejects a link that is no longer manifest-owned', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeVerify: async (_plan, manifest) => {
+    manifest.links = [];
+    await fs.rm(path.join(f.targetRoot, 'alpha'));
+    await fs.symlink(f.sourceDir, path.join(f.targetRoot, 'alpha'));
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].verified, false);
+  assert.equal(await fs.lstat(report.targets[0].journal).then(() => true, () => false), true);
+});
+
+test('recovery preserves quarantine when original path is occupied', async () => {
+  const f = await fixture();
+  const original = path.join(f.targetRoot, 'old');
+  const quarantine = path.join(f.stateRoot, 'quarantine-occupied', 'old');
+  await fs.mkdir(path.dirname(quarantine), { recursive: true });
+  await fs.writeFile(quarantine, 'quarantined');
+  await fs.writeFile(original, 'new occupant');
+  const journal = path.join(f.stateRoot, 'journal-occupied.json');
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
+  assert.equal(result.recovered, false);
+  assert.equal(result.conflicts.length, 1);
+  assert.equal(await fs.readFile(original, 'utf8'), 'new occupant');
+  assert.equal(await fs.readFile(quarantine, 'utf8'), 'quarantined');
+  assert.equal(await fs.lstat(journal).then(() => true, () => false), true);
+});
+
+test('recovery rejects malformed journals without deleting them', async () => {
+  const f = await fixture();
+  const journal = path.join(f.stateRoot, 'malformed.json');
+  await fs.mkdir(f.stateRoot, { recursive: true });
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'verified' }));
+  await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: journal }), { code: 'JOURNAL_MALFORMED' });
+  assert.equal(await fs.lstat(journal).then(() => true, () => false), true);
+});
+
+test('lock failure is target-specific and prevents every target mutation', async () => {
+  const first = await fixture();
+  const second = await fixture();
+  const held = await acquireTargetLock({ stateRoot: first.stateRoot, targetIdentity: { ...second.target, catalogIdentity: second.catalog } });
+  const report = await applyPlanSet({ plans: [first.planSet.plans[0], second.planSet.plans[0]] }, { state: { stateRoot: first.stateRoot } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets.length, 2);
+  assert.equal(report.targets[1].failed[0].code, 'TARGET_LOCKED');
+  assert.equal(report.targets[0].applied.length, 0);
+  assert.equal(await fs.lstat(path.join(first.targetRoot, 'alpha')).catch(() => null), null);
+  assert.equal(await fs.lstat(path.join(second.targetRoot, 'alpha')).catch(() => null), null);
+  await held.release();
+});
+
+test('journal uses only durable transaction states', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot, failAfter: 0 } });
+  const journal = JSON.parse(await fs.readFile(report.targets[0].journal, 'utf8'));
+  assert.equal(journal.state, 'failed');
+  assert.ok(['prepared', 'mutating', 'manifest-written', 'verifying', 'committed', 'failed'].includes(journal.state));
+});
+
+test('target identity replacement is rejected before any mutation', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeMutation: async () => {
+    await fs.rm(f.targetRoot, { recursive: true });
+    await fs.mkdir(f.targetRoot);
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].failed[0].code, 'TARGET_IDENTITY_CHANGED');
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+});
+
+test('recovery rolls back a completed create operation', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot, failAfter: 1 } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).then(() => true, () => false), true);
+  const recovered = await recoverJournal({ stateRoot: f.stateRoot, journalPath: report.targets[0].journal });
+  assert.equal(recovered.recovered, true);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+  assert.equal(await fs.lstat(report.targets[0].journal).catch(() => null), null);
+});
+
+test('verification failure restores the manifest written by the transaction', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeVerify: async (_plan, manifest) => {
+    manifest.links = [];
+  } });
+  assert.equal(report.exitCode, 1);
+  assert.equal(report.targets[0].failed[0].code, 'POST_VERIFY_FAILED');
+  assert.equal(await fs.lstat(report.targets[0].journal).then(() => true, () => false), true);
+  await recoverJournal({ stateRoot: f.stateRoot, journalPath: report.targets[0].journal });
+  assert.equal(await fs.lstat(report.targets[0].journal).catch(() => null), null);
 });
