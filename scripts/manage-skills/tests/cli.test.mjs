@@ -224,44 +224,65 @@ test('operational failures map to exit code one and JSON keeps diagnostics on st
   assert.match(result.stderr, /catalog/i);
 });
 
-test('tool README documents catalog, ownership, target, runtime, Pod, and DSH contracts', async () => {
+test('tool README preserves the real manage-skills documentation contracts', async () => {
   const text = await fs.readFile(path.join(root, 'scripts/manage-skills/README.md'), 'utf8');
-  for (const phrase of [
-    '显式 --catalog',
-    'MANAGE_SKILLS_CATALOG',
-    'manifest',
-    '没有 manifest',
-    '全局',
-    'DSH_HOME',
-    '$HOME/.dsh/skills',
-    '$HOME/.agents/skills',
-    '$HOME/.claude/skills',
-    '--disable-all',
-    'Pod',
-    '手动 checkout',
-    '不自动 clone',
-    '不自动更新',
-    'skill-filesystem',
-    'tool-skill',
-  ]) assert.ok(text.includes(phrase), `missing documentation phrase: ${phrase}`);
-  assert.ok(text.includes('scripts/manage-skills/manage-skills'));
-  assert.ok(text.includes('manage-skills.mjs status --catalog <path> --runtime dsh --json'));
-  assert.ok(text.includes('manage-skills.mjs apply --catalog <path> --runtime dsh --enable brainstorming --yes'));
+  const precedence = [
+    '1. 显式 `--catalog <path>`；',
+    '2. `MANAGE_SKILLS_CATALOG`；',
+    '3. 从脚本位置推导本仓库的 `skills/`；',
+    '4. 交互式输入路径。',
+  ];
+  let previous = -1;
+  for (const item of precedence) {
+    const index = text.indexOf(item);
+    assert.ok(index > previous, `catalog precedence out of order or missing: ${item}`);
+    previous = index;
+  }
+
+  assert.match(text, /## 归属与保护规则[\s\S]*?没有 manifest[\s\S]*?foreign\/unmanaged symlink[\s\S]*?--disable-all/);
+  assert.match(text, /## 全局目标与运行时目录[\s\S]*?本工具只管理全局目录[\s\S]*?global-only guard/);
+  assert.match(text, /## Pod 操作边界[\s\S]*?手动.*checkout[\s\S]*?不自动 clone[\s\S]*?不自动更新/);
+  assert.match(text, /provider gate[\s\S]*?skill-filesystem[\s\S]*?tool-skill/);
+  assert.match(text, /manage-skills\.mjs status --catalog <path> --runtime dsh --json/);
+  assert.match(text, /manage-skills\.mjs apply --catalog <path> --runtime dsh --enable brainstorming --yes/);
+  for (const phrase of ['$HOME/.dsh/skills', '$HOME/.agents/skills', '$HOME/.claude/skills', '--disable-all']) {
+    assert.ok(text.includes(phrase), `missing documentation phrase: ${phrase}`);
+  }
 });
 
-test('root README links to the implemented manage-skills tool', async () => {
+test('root README has a valid readable Markdown link to the tool README', async () => {
   const text = await fs.readFile(path.join(root, 'README.md'), 'utf8');
-  assert.ok(text.includes('scripts/manage-skills/README.md'));
+  const link = text.match(/\[[^\]]+\]\((scripts\/manage-skills\/README\.md)\)/);
+  assert.ok(link, 'missing Markdown link to scripts/manage-skills/README.md');
+  const target = path.resolve(root, link[1]);
+  const stat = await fs.stat(target);
+  assert.ok(stat.isFile(), `Markdown link target is not a file: ${target}`);
+  assert.ok((await fs.readFile(target, 'utf8')).trim().length > 0, 'Markdown link target is empty');
   assert.doesNotMatch(text, /manage-skills 设计.*实施计划/);
 });
 
-test('AGENTS documents six categories and ESM feature test command', async () => {
+test('AGENTS documents six categories and the exact ESM feature-test command', async () => {
   const text = await fs.readFile(path.join(root, 'AGENTS.md'), 'utf8');
-  assert.match(text, /六类/);
-  for (const category of ['superpowers', 'caveman', 'addyosmani', 'darwin', 'bamhub', 'project']) {
-    assert.ok(text.includes(`skills/${category}/`), `missing category: ${category}`);
+  assert.match(text, /skill 按所有权分为六类/);
+  const categories = ['superpowers', 'caveman', 'addyosmani', 'darwin', 'bamhub', 'project'];
+  let previous = -1;
+  for (const category of categories) {
+    const index = text.indexOf(`skills/${category}/`);
+    assert.ok(index > previous, `missing or out-of-order category: ${category}`);
+    previous = index;
   }
-  assert.ok(text.includes('node --test scripts/manage-skills/tests/*.test.mjs'));
-  assert.ok(text.includes('ESM 项目测试') && text.includes('*.test.mjs'));
+  assert.match(text, /```bash\nnode --test scripts\/manage-skills\/tests\/\*\.test\.mjs\n```/);
+  assert.match(text, /ESM 项目测试.*\*\.test\.mjs/);
+});
+
+test('Task 8 report separates bamhub docs from maomao-deploy documentation', async () => {
+  const text = await fs.readFile(path.join(root, 'task-8-report.md'), 'utf8');
+  assert.match(text, /bamhub docs/);
+  assert.match(text, /独立 maomao-deploy README/);
+  assert.match(text, /16ae432/);
+  for (const phrase of ['PVC mappings', 'manual checkout', 'dynamic path', 'context/container', 'image tag authority', 'DSH provider gate']) {
+    assert.ok(text.includes(phrase), `missing deployment documentation note: ${phrase}`);
+  }
+  assert.match(text, /当前 worktree 不修改该仓库/);
 });
 
