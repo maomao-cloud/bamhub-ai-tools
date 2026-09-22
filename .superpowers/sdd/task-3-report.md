@@ -12,8 +12,8 @@ No links, plan, transaction, interactive, or CLI implementation was added.
 
 ## TDD evidence
 
-1. Added reviewer regression tests before implementation and ran the focused suite red (6 failures).
-2. Implemented the minimum state and lock fixes, then re-ran the focused suite green.
+1. Added the TOCTOU regression test before implementation and ran the focused suite red (1 failure).
+2. Implemented atomic quarantine release, then re-ran the focused suite green.
 3. Re-ran the catalog/targets regression suite and `git diff --check`.
 
 ## Covered behavior
@@ -27,7 +27,8 @@ No links, plan, transaction, interactive, or CLI implementation was added.
 - Atomic same-directory temporary-file write followed by rename, with temporary cleanup.
 - Manifest fields for target/catalog identity, Git metadata when supplied, link name, source-relative path, source identity, relative target, and creation time.
 - Exclusive per-target directory locks with owner/token/time metadata.
-- Second acquisition failure with validated owner/time details; corrupt or missing metadata is diagnosed without undefined fields, and release verifies the token before removal.
+- Second acquisition failure with validated owner/time details; corrupt or missing metadata is diagnosed without undefined fields.
+- Lock release atomically renames the lock directory to a unique quarantine, revalidates the token there, removes only a matching quarantine, and reports `LOCK_OWNERSHIP_CHANGED` without deleting a replacement lock.
 - Idempotent release and no automatic stale-lock stealing; stale locks require explicit removal.
 - State-root write/lock failures reported as unavailable errors where applicable.
 
@@ -35,10 +36,10 @@ No links, plan, transaction, interactive, or CLI implementation was added.
 
 ```text
 node --test scripts/manage-skills/tests/state.test.mjs
-12 tests passed, 0 failed
+13 tests passed, 0 failed
 
 node --test scripts/manage-skills/tests/state.test.mjs scripts/manage-skills/tests/catalog.test.mjs scripts/manage-skills/tests/targets.test.mjs
-30 tests passed, 0 failed
+31 tests passed, 0 failed
 
 git diff --check
 passed
@@ -53,4 +54,4 @@ passed
 
 ## Commit
 
-Commit: `5eb9616 fix: harden manage-skills state`
+Commit: `fix(state): make lock release TOCTOU-safe`

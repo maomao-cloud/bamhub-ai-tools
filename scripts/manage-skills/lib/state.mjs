@@ -292,7 +292,30 @@ export async function acquireTargetLock({ stateRoot, targetIdentity } = {}) {
       if (released) return;
       const metadata = await readLockMetadata(directory);
       if (metadata.token !== token) throw metadataError('TARGET_LOCKED', `Target lock is held by ${metadata.owner}`, directory, metadata);
-      await fs.rm(directory, { recursive: true, force: false });
+
+      const quarantine = `${directory}.release-${process.pid}-${crypto.randomUUID()}`;
+      await fs.rename(directory, quarantine);
+      let quarantinedMetadata;
+      try {
+        quarantinedMetadata = await readLockMetadata(quarantine);
+      } catch (error) {
+        await fs.rename(quarantine, directory).catch(() => {});
+        throw error;
+      }
+      if (quarantinedMetadata.token !== token) {
+        let restored = false;
+        try {
+          await fs.rename(quarantine, directory);
+          restored = true;
+        } catch (error) {
+          if (error.code !== 'EEXIST') throw error;
+        }
+        const ownershipError = metadataError('LOCK_OWNERSHIP_CHANGED', `Target lock ownership changed to ${quarantinedMetadata.owner}`, directory, quarantinedMetadata);
+        ownershipError.quarantine = quarantine;
+        ownershipError.restored = restored;
+        throw ownershipError;
+      }
+      await fs.rm(quarantine, { recursive: true, force: false });
       released = true;
     },
   };

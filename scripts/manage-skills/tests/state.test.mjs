@@ -161,6 +161,34 @@ test('manifest identity rejects non-plain JSON and incomplete identities', () =>
   assert.throws(() => manifestIdentity({ targetIdentity: { path: '/target', dev: 1, ino: 2 }, catalogIdentity: { path: '/catalog', canonicalPath: '/catalog', dev: 1, ino: 2 } }), (error) => error.code === 'IDENTITY_INVALID');
 });
 
+test('lock release never removes a replacement lock installed after token validation', async () => {
+  const fixture = await manifestFixture();
+  const first = await acquireTargetLock(fixture);
+  const originalReadFile = fs.readFile;
+  const originalRm = fs.rm;
+  let replaced = false;
+  const replacement = { owner: 'new-owner', token: 'new-token', acquiredAt: '2026-09-22T00:00:00.000Z' };
+  const replacementPath = `${first.path}.replacement`;
+  await fs.mkdir(replacementPath);
+  await fs.writeFile(path.join(replacementPath, 'owner.json'), JSON.stringify(replacement));
+  fs.readFile = async (...args) => {
+    const result = await originalReadFile(...args);
+    if (!replaced && args[0] === path.join(first.path, 'owner.json')) {
+      replaced = true;
+      await originalRm(first.path, { recursive: true, force: false });
+      await fs.rename(replacementPath, first.path);
+    }
+    return result;
+  };
+  try {
+    await assert.rejects(first.release(), (error) => error.code === 'LOCK_OWNERSHIP_CHANGED' && error.owner === replacement.owner && error.acquiredAt === replacement.acquiredAt);
+  } finally {
+    fs.readFile = originalReadFile;
+  }
+  assert.equal((await fs.readFile(path.join(first.path, 'owner.json'), 'utf8')).includes(replacement.token), true);
+  await fs.rm(first.path, { recursive: true });
+});
+
 test('lock release never removes a lock with a different token', async () => {
   const fixture = await manifestFixture();
   const first = await acquireTargetLock(fixture);
