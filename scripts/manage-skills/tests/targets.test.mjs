@@ -78,6 +78,21 @@ test('validateTarget returns identity for a missing final directory under a safe
   assert.equal(await fs.stat(target).catch(() => null), null);
 });
 
+test('validateTarget accepts an existing safe global directory', async () => {
+  const root = await tempDir();
+  const catalog = path.join(root, 'catalog');
+  const parent = path.join(root, 'global');
+  const target = path.join(parent, 'skills');
+  await fs.mkdir(catalog, { recursive: true });
+  await fs.mkdir(target, { recursive: true });
+  const identity = await validateTarget({ targetPath: target, catalogRoot: catalog, mode: 'custom' });
+  assert.equal(identity.path, target);
+  assert.equal(identity.realPath, target);
+  assert.equal(identity.existed, true);
+  assert.equal(typeof identity.dev, 'number');
+  assert.equal(typeof identity.ino, 'number');
+});
+
 test('validateTarget rejects catalog overlap in either direction', async () => {
   const root = await tempDir();
   const catalog = path.join(root, 'catalog');
@@ -98,6 +113,11 @@ test('validateTarget rejects project targets, Git worktree targets, symlink ance
   await assertTargetRejected({ targetPath: path.join(project, '.agents', 'skills'), catalogRoot: catalog, mode: 'custom' }, 'project');
   await assertTargetRejected({ targetPath: path.join(project, '.claude', 'skills'), catalogRoot: catalog, mode: 'custom' }, 'project');
 
+  const fileWorktree = path.join(root, 'file-worktree');
+  await fs.mkdir(fileWorktree, { recursive: true });
+  await fs.writeFile(path.join(fileWorktree, '.git'), 'gitdir: /tmp/worktree/.git/worktrees/file-worktree\\n');
+  await assertTargetRejected({ targetPath: path.join(fileWorktree, 'global'), catalogRoot: catalog, mode: 'custom' }, 'git');
+
   const realParent = path.join(root, 'real-parent');
   const linkParent = path.join(root, 'link-parent');
   await fs.mkdir(realParent, { recursive: true });
@@ -115,6 +135,9 @@ test('resolveTargetSelection supports custom targets, repeated runtimes, all, an
     { id: 'dsh', label: 'DSH', path: '/dsh/skills', source: 'DSH_HOME', exists: false, selectable: true },
     { id: 'codex', label: 'Codex', path: '/codex/skills', source: 'HOME', exists: true, selectable: true },
     { id: 'claude', label: 'Claude Code', path: '/claude/skills', source: 'HOME', exists: false, selectable: true },
+    { id: 'custom', label: 'Custom', path: '/custom/skills', source: 'custom', exists: false, selectable: true },
+    { id: 'unknown', label: 'Unknown', path: '/unknown/skills', source: 'test', exists: false, selectable: true },
+    { id: 'dsh-disabled', label: 'DSH duplicate', path: '/other/skills', source: 'test', exists: false, selectable: true },
   ];
   const selected = await resolveTargetSelection({ runtimes, selectedIds: ['codex', 'codex', 'dsh'] });
   assert.deepEqual(selected.map(({ id }) => id), ['codex', 'dsh']);

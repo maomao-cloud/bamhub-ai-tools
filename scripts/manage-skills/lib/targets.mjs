@@ -80,7 +80,6 @@ function projectSkillPath(candidate) {
 
 async function inspectTargetPath(targetPath) {
   const absolute = path.resolve(targetPath);
-  const parts = ancestors(absolute);
   const targetStat = await lstatIfExists(absolute);
   if (targetStat?.isSymbolicLink()) {
     throw targetError('UNSAFE_TARGET', `Target rejected: target is a symlink (${absolute})`, 'target is a symlink');
@@ -89,23 +88,21 @@ async function inspectTargetPath(targetPath) {
     throw targetError('UNSAFE_TARGET', `Target rejected: target is not a directory (${absolute})`, 'target is not a directory');
   }
 
-  let nearestExisting;
-  for (const ancestor of parts) {
+  const parent = path.dirname(absolute);
+  for (const ancestor of ancestors(parent)) {
     const stat = await lstatIfExists(ancestor);
-    if (!stat) continue;
+    if (!stat) {
+      throw targetError('UNSAFE_TARGET', `Target rejected: missing parent directory (${ancestor})`, 'missing parent directory');
+    }
     if (stat.isSymbolicLink()) {
       throw targetError('UNSAFE_TARGET', `Target rejected: symlink ancestor (${ancestor})`, 'symlink ancestor');
     }
     if (!stat.isDirectory()) {
       throw targetError('UNSAFE_TARGET', `Target rejected: non-directory parent (${ancestor})`, 'non-directory parent');
     }
-    nearestExisting ??= ancestor;
-  }
-  if (!nearestExisting || nearestExisting !== path.dirname(absolute)) {
-    throw targetError('UNSAFE_TARGET', `Target rejected: missing parent directory (${path.dirname(absolute)})`, 'missing parent directory');
   }
 
-  for (const ancestor of ancestors(nearestExisting)) {
+  for (const ancestor of ancestors(parent)) {
     const gitMarker = await lstatIfExists(path.join(ancestor, '.git'));
     if (gitMarker) {
       throw targetError('UNSAFE_TARGET', `Target rejected: inside Git worktree (${ancestor})`, 'inside Git worktree');
@@ -177,7 +174,8 @@ export async function resolveTargetSelection({ runtimes = [], customPath, select
   const byId = new Map(runtimes.map((runtime) => [runtime.id, runtime]));
   if (ids.includes('all')) {
     if (ids.length !== 1) throw targetError('TARGET_SELECTOR_CONFLICT', 'The all runtime selector cannot be combined with other selectors', 'all selector conflict');
-    return runtimes.filter((runtime) => runtime.selectable);
+    const standardRuntimeIds = new Set(['dsh', 'codex', 'claude']);
+    return runtimes.filter((runtime) => standardRuntimeIds.has(runtime.id) && runtime.selectable);
   }
   const selected = [];
   for (const id of ids) {
