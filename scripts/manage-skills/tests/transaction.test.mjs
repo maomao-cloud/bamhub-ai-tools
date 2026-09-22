@@ -444,6 +444,42 @@ test('missing target is created only by apply and recovery removes only an empty
   assert.equal(await fs.lstat(f.targetRoot).catch(() => null), null);
 });
 
+test('missing-target recovery removes the manifest written after target creation', async () => {
+  const f = await fixture();
+  await fs.rm(f.targetRoot, { recursive: true });
+  const parentStat = await fs.stat(path.dirname(f.targetRoot));
+  const missingTarget = {
+    path: f.targetRoot,
+    canonicalPath: f.targetRoot,
+    realPath: f.targetRoot,
+    dev: null,
+    ino: null,
+    missing: true,
+    parentIdentity: { canonicalPath: await fs.realpath(path.dirname(f.targetRoot)), dev: parentStat.dev, ino: parentStat.ino },
+    stateRoot: f.stateRoot,
+  };
+  const planSet = await buildPlanSet({ targets: [missingTarget], catalog: f.cat, desiredSelections: f.cat.skills });
+  const failed = await applyPlanSet(planSet, {
+    state: { stateRoot: f.stateRoot },
+    beforeVerify: async () => { throw new Error('simulated crash after manifest write'); },
+  });
+  assert.equal(failed.exitCode, 1);
+  const journalPath = failed.targets[0].journal;
+  const journal = JSON.parse(await fs.readFile(journalPath, 'utf8'));
+  assert.equal(journal.manifest.target.missing, false);
+  const actualManifestPath = path.join(f.stateRoot, `target-${manifestIdentity({ targetIdentity: journal.manifest.target, catalogIdentity: f.catalog }).slice(0, 32)}.json`);
+  const initialMissingManifestPath = path.join(f.stateRoot, `target-${manifestIdentity({ targetIdentity: missingTarget, catalogIdentity: f.catalog }).slice(0, 32)}.json`);
+  await fs.writeFile(actualManifestPath, JSON.stringify(journal.manifest));
+  delete journal.manifest;
+  await fs.writeFile(journalPath, JSON.stringify(journal));
+  const recovered = await recoverJournal({ stateRoot: f.stateRoot, journalPath });
+  assert.equal(recovered.recovered, true);
+  assert.equal(await fs.lstat(path.join(f.targetRoot, 'alpha')).catch(() => null), null);
+  assert.equal(await fs.lstat(f.targetRoot).catch(() => null), null);
+  assert.equal(await fs.lstat(actualManifestPath).catch(() => null), null);
+  assert.equal(await fs.lstat(initialMissingManifestPath).catch(() => null), null);
+});
+
 test('journal recovery rejects unknown fields and incomplete schemas', async () => {
   const f = await fixture();
   const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot, failAfter: 0 } });

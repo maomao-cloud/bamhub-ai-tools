@@ -216,9 +216,16 @@ export async function verifyPlan(plan, { manifest } = {}) {
   return { ok: mismatches.length === 0, mismatches };
 }
 
-async function restoreOldManifest(stateRoot, plan, oldManifest, targetIdentity = plan.target) {
-  const file = path.join(path.resolve(stateRoot), `target-${manifestIdentity({ targetIdentity, catalogIdentity: plan.catalog }).slice(0, 32)}.json`);
-  if (oldManifest) await writeManifestAtomic({ stateRoot, targetIdentity: { ...targetIdentity, catalogIdentity: plan.catalog }, manifest: oldManifest });
+function journalManifestTarget(journal) {
+  if (journal.manifest?.target) return journal.manifest.target;
+  const targetCreate = [...(journal.operations ?? [])].reverse().find((operation) => operation.type === 'target-create' && operation.status === 'done' && operation.identity);
+  return targetCreate?.identity ?? journal.target;
+}
+
+async function restoreOldManifest(stateRoot, plan, oldManifest, targetIdentity) {
+  const effectiveTarget = targetIdentity ?? journalManifestTarget(plan);
+  const file = path.join(path.resolve(stateRoot), `target-${manifestIdentity({ targetIdentity: effectiveTarget, catalogIdentity: plan.catalog }).slice(0, 32)}.json`);
+  if (oldManifest) await writeManifestAtomic({ stateRoot, targetIdentity: { ...effectiveTarget, catalogIdentity: plan.catalog }, manifest: oldManifest });
   else await fs.rm(file, { force: true });
 }
 
