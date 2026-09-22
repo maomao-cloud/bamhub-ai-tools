@@ -96,7 +96,7 @@ test('recovery restores quarantined paths from an interrupted journal', async ()
   await fs.rename(original, quarantine);
   const journal = path.join(f.stateRoot, 'journal-test.json');
   await fs.mkdir(f.stateRoot, { recursive: true });
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, true);
   assert.equal(await fs.readFile(original, 'utf8'), 'old');
@@ -170,7 +170,7 @@ test('recovery preserves quarantine when original path is occupied', async () =>
   await fs.writeFile(original, 'new occupant');
   const journal = path.join(f.stateRoot, 'journal-occupied.json');
   await fs.mkdir(f.stateRoot, { recursive: true });
-  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
+  await fs.writeFile(journal, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, planFingerprint: 'test-fingerprint', oldManifest: null, quarantine: path.dirname(quarantine), operations: [{ type: 'quarantine', original, quarantine, status: 'done' }] }));
   const result = await recoverJournal({ stateRoot: f.stateRoot, journalPath: journal });
   assert.equal(result.recovered, false);
   assert.equal(result.conflicts.length, 1);
@@ -310,4 +310,59 @@ test('recovery rejects external operation paths and inconsistent quarantine', as
   const inconsistent = path.join(f.stateRoot, 'inconsistent.json');
   await fs.writeFile(inconsistent, JSON.stringify({ version: 1, state: 'mutating', target: f.target, catalog: f.catalog, quarantine: path.join(f.targetRoot, 'expected-quarantine'), operations: [{ type: 'quarantine', original: path.join(f.targetRoot, 'alpha'), quarantine: path.join(f.targetRoot, 'other-quarantine', 'alpha'), status: 'done' }] }));
   await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: inconsistent }), { code: 'JOURNAL_MALFORMED' });
+});
+
+test('create recheck detects replacement of a created symlink with the same target text', async () => {
+  const f = await fixture();
+  const secondDir = path.join(f.catalogRoot, 'group', 'beta');
+  await fs.mkdir(secondDir, { recursive: true });
+  await fs.writeFile(path.join(secondDir, 'SKILL.md'), '---\nname: beta\ndescription: test\n---\n');
+  const secondStat = await fs.stat(secondDir);
+  const second = { name: 'beta', relativeSource: 'group/beta', sourceDir: secondDir, skillFile: path.join(secondDir, 'SKILL.md'), sourceIdentity: { canonicalPath: await fs.realpath(secondDir), dev: secondStat.dev, ino: secondStat.ino } };
+  const planSet = await buildPlanSet({ targets: [f.target], catalog: { ...f.cat, skills: [...f.cat.skills, second] }, desiredSelections: [...f.cat.skills, second] });
+  assert.equal(planSet.plans[0].create.length, 2);
+  const report = await applyPlanSet(planSet, { state: { stateRoot: f.stateRoot }, beforeManifest: async () => {
+    const link = path.join(f.targetRoot, 'alpha');
+    const text = await fs.readlink(link);
+    const replacement = `${link}.replacement`;
+    await fs.symlink(text, replacement, 'dir');
+    await fs.unlink(link);
+    await fs.rename(replacement, link);
+  } });
+  assert.equal(report.exitCode, 1, JSON.stringify(report));
+  assert.equal(report.targets[0].failed[0].code, 'TARGET_PATH_CHANGED');
+});
+
+test('post-verification failure preserves structured mismatches without error internals', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot }, beforeVerify: async (_plan, manifest) => {
+    manifest.links = [];
+  } });
+  const detail = report.targets[0].failed[0];
+  assert.equal(detail.code, 'POST_VERIFY_FAILED');
+  assert.ok(Array.isArray(detail.mismatches));
+  assert.equal(detail.mismatches[0].path.endsWith('/alpha'), true);
+  assert.equal('cause' in detail, false);
+  assert.doesNotThrow(() => JSON.stringify(detail));
+});
+
+test('journal recovery rejects unknown fields and incomplete schemas', async () => {
+  const f = await fixture();
+  const report = await applyPlanSet(f.planSet, { state: { stateRoot: f.stateRoot, failAfter: 0 } });
+  const journal = JSON.parse(await fs.readFile(report.targets[0].journal, 'utf8'));
+  for (const [name, mutate] of [
+    ['top-level unknown field', (value) => { value.unexpected = true; }],
+    ['missing plan fingerprint', (value) => { delete value.planFingerprint; }],
+    ['invalid old manifest', (value) => { value.oldManifest = {}; }],
+    ['incomplete target identity', (value) => { delete value.target.ino; }],
+    ['unknown operation field', (value) => { value.operations = [{ type: 'create', linkPath: path.join(f.targetRoot, 'alpha'), sourceDir: f.sourceDir, status: 'pending', unexpected: true }]; }],
+    ['missing create field', (value) => { value.operations = [{ type: 'create', sourceDir: f.sourceDir, status: 'pending' }]; }],
+  ]) {
+    const candidate = path.join(f.stateRoot, `${name.replaceAll(' ', '-')}.json`);
+    const candidateJournal = structuredClone(journal);
+    mutate(candidateJournal);
+    await fs.writeFile(candidate, JSON.stringify(candidateJournal));
+    await assert.rejects(() => recoverJournal({ stateRoot: f.stateRoot, journalPath: candidate }), { code: 'JOURNAL_MALFORMED' }, name);
+    assert.equal(await fs.lstat(candidate).then(() => true, () => false), true);
+  }
 });

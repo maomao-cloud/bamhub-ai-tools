@@ -15,8 +15,34 @@ function transactionError(code, message, details = {}) {
   return error;
 }
 
+const SAFE_FAILURE_FIELDS = new Set([
+  'mismatches', 'path', 'identity', 'recoveryError', 'lockDiagnostics', 'diagnostics', 'conflicts',
+  'stateRoot', 'journalPath', 'owner', 'acquiredAt',
+]);
+const SECRET_FIELD = /(?:secret|token|password|credential|authorization|cookie|cause|stack)/i;
+
+function safeDetail(value, depth = 0) {
+  if (depth > 6 || value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (Array.isArray(value)) return value.map((item) => safeDetail(item, depth + 1)).filter((item) => item !== undefined);
+  if (typeof value !== 'object') return undefined;
+  const output = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (SECRET_FIELD.test(key)) continue;
+    const safe = safeDetail(item, depth + 1);
+    if (safe !== undefined) output[key] = safe;
+  }
+  return output;
+}
+
 function failure(error) {
-  return { code: error?.code ?? 'TRANSACTION_FAILED', message: error?.message ?? String(error) };
+  const result = { code: error?.code ?? 'TRANSACTION_FAILED', message: error?.message ?? String(error) };
+  for (const field of SAFE_FAILURE_FIELDS) {
+    if (!(field in (error ?? {}))) continue;
+    const safe = safeDetail(error[field]);
+    if (safe !== undefined) result[field] = safe;
+  }
+  return result;
 }
 
 function stateRootFor(plan, state) {
@@ -96,8 +122,16 @@ async function lstatOrNull(file) {
 async function checkLink(item, snapshot, kind) {
   const current = await lstatOrNull(item.linkPath);
   if (kind === 'create') {
+    if (snapshot?.created === true) {
+      if (!current || !current.isSymbolicLink()) throw transactionError('TARGET_PATH_CHANGED', `created link changed: ${item.linkPath}`, { identity: current ? { dev: current.dev, ino: current.ino, type: current.isDirectory() ? 'directory' : 'file' } : { type: 'missing' } });
+      const linkText = await fs.readlink(item.linkPath);
+      if (!sameIdentityFields(current, snapshot, ['dev', 'ino']) || snapshot.type !== 'symlink' || snapshot.linkText !== linkText) {
+        throw transactionError('TARGET_PATH_CHANGED', `created link identity changed: ${item.linkPath}`, { identity: { dev: current.dev, ino: current.ino, type: 'symlink', linkText } });
+      }
+      return;
+    }
     if (!current) return;
-    if (snapshot?.type === 'created' && current.isSymbolicLink()) {
+    if (current.isSymbolicLink()) {
       const linkText = await fs.readlink(item.linkPath);
       if (normalizeRelative(linkText) === normalizeRelative(item.relativeTarget)) return;
     }
@@ -220,7 +254,9 @@ async function applyPlan(plan, { state, dryRun, beforeMutation, beforeManifest, 
       record.operations.push(operation);
       await writeJournal(journal, record);
       await fs.symlink(item.relativeTarget, item.linkPath, 'dir');
-      snapshots.links.set(item.linkPath, { type: 'created' });
+      const createdLink = await fs.lstat(item.linkPath);
+      const createdLinkText = await fs.readlink(item.linkPath);
+      snapshots.links.set(item.linkPath, { created: true, dev: createdLink.dev, ino: createdLink.ino, type: 'symlink', linkText: createdLinkText });
       operation.status = 'done';
       result.applied.push(item.linkPath);
       mutationCount += 1;
@@ -326,9 +362,45 @@ function absolutePath(value, label) {
   return path.resolve(value);
 }
 
+function plainObject(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function onlyFields(value, allowed, label) {
+  if (!plainObject(value) || Object.keys(value).some((key) => !allowed.has(key))) throw journalError(`${label} contains unknown or invalid fields`);
+}
+
+function validateJournalIdentity(identity, label, git = false) {
+  const allowed = new Set(git ? ['path', 'canonicalPath', 'dev', 'ino', 'gitRemote', 'gitCommit'] : ['path', 'canonicalPath', 'dev', 'ino']);
+  onlyFields(identity, allowed, label);
+  if (typeof identity.canonicalPath !== 'string' || !path.isAbsolute(identity.canonicalPath) || !Number.isSafeInteger(identity.dev) || identity.dev < 0 || !Number.isSafeInteger(identity.ino) || identity.ino < 0) throw journalError(`${label} is incomplete`);
+  if ('path' in identity && (typeof identity.path !== 'string' || !path.isAbsolute(identity.path))) throw journalError(`${label}.path is invalid`);
+  for (const field of git ? ['gitRemote', 'gitCommit'] : []) if (field in identity && typeof identity[field] !== 'string') throw journalError(`${label}.${field} is invalid`);
+}
+
+function validateJournalManifest(manifest, label) {
+  if (manifest === null) return;
+  if (!plainObject(manifest) || manifest.version !== 1 || !plainObject(manifest.target) || !plainObject(manifest.catalog) || !Array.isArray(manifest.links)) throw journalError(`${label} schema is invalid`);
+  onlyFields(manifest, new Set(['version', 'target', 'catalog', 'links']), label);
+  validateJournalIdentity(manifest.target, `${label}.target`);
+  validateJournalIdentity(manifest.catalog, `${label}.catalog`, true);
+  for (const link of manifest.links) {
+    if (!plainObject(link)) throw journalError(`${label}.links entry is invalid`);
+    onlyFields(link, new Set(['linkName', 'sourceRelative', 'relativeTarget', 'sourceIdentity', 'createdAt']), `${label}.links entry`);
+    if (typeof link.linkName !== 'string' || typeof link.sourceRelative !== 'string' || typeof link.relativeTarget !== 'string' || typeof link.createdAt !== 'string' || Number.isNaN(Date.parse(link.createdAt))) throw journalError(`${label}.links entry is invalid`);
+    validateJournalIdentity(link.sourceIdentity, `${label}.links.sourceIdentity`);
+  }
+}
+
 function validateJournal(journal, stateRoot, journalPath) {
-  if (!journal || typeof journal !== 'object' || journal.version !== JOURNAL_VERSION || !JOURNAL_STATES.has(journal.state) || journal.state === 'committed' || !Array.isArray(journal.operations)) throw journalError('journal schema or state is invalid');
-  if (!journal.target || typeof journal.target !== 'object' || !journal.catalog || typeof journal.catalog !== 'object') throw journalError('journal identities are invalid');
+  if (!plainObject(journal) || journal.version !== JOURNAL_VERSION || !JOURNAL_STATES.has(journal.state) || journal.state === 'committed' || !Array.isArray(journal.operations)) throw journalError('journal schema or state is invalid');
+  onlyFields(journal, new Set(['version', 'state', 'target', 'catalog', 'planFingerprint', 'oldManifest', 'operations', 'quarantine', 'manifest', 'error', 'recoveryError']), 'journal');
+  if (typeof journal.planFingerprint !== 'string' || !journal.planFingerprint) throw journalError('journal planFingerprint is invalid');
+  if (!('oldManifest' in journal)) throw journalError('journal oldManifest is required');
+  validateJournalManifest(journal.oldManifest, 'journal.oldManifest');
+  if ('manifest' in journal) validateJournalManifest(journal.manifest, 'journal.manifest');
+  validateJournalIdentity(journal.target, 'journal.target');
+  validateJournalIdentity(journal.catalog, 'journal.catalog', true);
   const root = path.resolve(stateRoot);
   const file = absolutePath(journalPath, 'journal path');
   const targetRoot = absolutePath(journal.target.path ?? journal.target.canonicalPath, 'target path');
@@ -337,18 +409,20 @@ function validateJournal(journal, stateRoot, journalPath) {
   if (!inside(file, root)) throw journalError('journal path is outside state root');
   if (!inside(quarantineRoot, path.dirname(targetRoot)) || quarantineRoot === targetRoot) throw journalError('journal quarantine is outside target boundary');
   for (const operation of journal.operations) {
-    if (!operation || !['create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
+    if (!plainObject(operation) || !['create', 'quarantine'].includes(operation.type) || !['pending', 'done'].includes(operation.status)) throw journalError('journal operation is invalid');
     if (operation.type === 'create') {
+      onlyFields(operation, new Set(['type', 'linkPath', 'sourceDir', 'status']), 'create operation');
       if (typeof operation.linkPath !== 'string' || typeof operation.sourceDir !== 'string') throw journalError('create operation is invalid');
       const linkPath = absolutePath(operation.linkPath, 'create linkPath');
       const sourceDir = absolutePath(operation.sourceDir, 'create sourceDir');
       if (!inside(linkPath, targetRoot) || !inside(sourceDir, catalogRoot)) throw journalError('create operation path is outside its boundary');
     }
     if (operation.type === 'quarantine') {
-      if (typeof operation.original !== 'string' || typeof operation.quarantine !== 'string') throw journalError('quarantine operation is invalid');
-      const original = absolutePath(operation.original, 'quarantine original');
-      const operationQuarantine = absolutePath(operation.quarantine, 'quarantine path');
-      if (!inside(original, targetRoot) || !inside(operationQuarantine, quarantineRoot)) throw journalError('quarantine operation path is outside its boundary');
+      onlyFields(operation, new Set(['type', 'original', 'quarantine', 'status']), 'remove operation');
+      if (typeof operation.original !== 'string' || typeof operation.quarantine !== 'string') throw journalError('remove operation is invalid');
+      const original = absolutePath(operation.original, 'remove original');
+      const operationQuarantine = absolutePath(operation.quarantine, 'remove quarantine');
+      if (!inside(original, targetRoot) || !inside(operationQuarantine, quarantineRoot)) throw journalError('remove operation path is outside its boundary');
     }
   }
   return journal;

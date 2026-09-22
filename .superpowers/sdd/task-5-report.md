@@ -55,3 +55,15 @@ Interactive and CLI code were not implemented.
 - `node --test scripts/manage-skills/tests/transaction.test.mjs` — passed (23 tests).
 - `node --test scripts/manage-skills/tests/*.test.mjs` — passed (72 tests).
 - `git diff --check` — passed.
+
+## Final review-gap closure (current TDD round)
+
+- Create snapshots now immediately `lstat` the new symlink and save `dev`, `ino`, `type`, and exact link text; every later create check compares all four values. Added a regression for replacing a same-target symlink with a different inode.
+- Failure reports retain allowlisted, recursively JSON-safe details such as mismatches, paths, identities, recovery errors, conflicts, and lock diagnostics; secret-like fields and error internals are excluded. Added post-verification structured-mismatch coverage.
+- Closed journal validation rejects unknown top-level and operation fields; requires plan fingerprint and old-manifest schema; validates complete target/catalog identities and create/remove operation fields and types.
+
+### TDD evidence for this round
+
+- Red: after adding the new tests, `node --test scripts/manage-skills/tests/transaction.test.mjs` reported 23 passing and 3 failing tests: same-target symlink replacement was not detected, structured mismatches were absent from the failure result, and unknown journal fields were accepted.
+- Green: after implementation, `node --test scripts/manage-skills/tests/transaction.test.mjs` passed 26/26 tests.
+- Full verification: `node --test scripts/manage-skills/tests/*.test.mjs` passed 75/75 tests; `git diff --check` passed.
