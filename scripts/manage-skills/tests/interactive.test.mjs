@@ -87,6 +87,16 @@ test('wizard collects catalog, all runtimes, desired skills, previews plan, and 
   assert.match(io.text(), /catalog|Plan|approve/i);
 });
 
+test('empty runtime selection prompts again instead of cancelling', async () => {
+  const calls = [];
+  const io = scriptedIo('y\nn\n1\na\ny\n');
+  const result = await runInteractive({ ...dependencies(calls), io });
+
+  assert.equal(result.cancelled, undefined);
+  assert.deepEqual(result.targets.map((target) => target.id), ['dsh']);
+  assert.match(io.text(), /at least one|select.*runtime/i);
+});
+
 test('final rejection returns cancelled and never invokes a mutation dependency', async () => {
   const calls = [];
   const io = scriptedIo('y\na\na\nn\n');
