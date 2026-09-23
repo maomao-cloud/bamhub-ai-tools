@@ -10,6 +10,7 @@
 - `skills/darwin/`：上游 Darwin skill（[Darwin skill](https://github.com/alchaincyf/darwin-skill)）的完整镜像；通过同步工具更新，不直接编辑。
 - `skills/bamhub/`：Bamhub 自有、可复用的 skill，按架构、集成、维护和效率分类；见其 [品牌说明](skills/bamhub/README.md)。
 - `skills/project/`：仅服务当前仓库的 skill；[同步上游 skill](skills/project/sync-upstream-skills/SKILL.md) 位于此处。
+- `scripts/manage-skills/`：全局 skill 软链接管理器；从用户确认的 catalog 选择 skill，以 manifest-owned 相对软链接暴露到 DSH、Codex、Claude Code 或自定义全局目录。
 - `tests/`：Node 内置测试，按对应领域组织。
 
 项目收尾质量门禁位于 `skills/bamhub/maintenance/project-finish-quality-gate/`，代码简化适配位于 `skills/bamhub/maintenance/code-simplification-review/`。
@@ -24,3 +25,5 @@ Darwin 是一套由 Agent 执行的 skill 优化流程，未提供内置 hook、
 `skills/caveman/` 只镜像上游的 `skills/` 目录，不包含插件、hooks、commands、agents、安装器或 benchmarks。因此需要运行时集成的 `cavecrew`（agents）与 `caveman-stats`（hooks）在本仓库中仅提供说明，除非调用方自行配置对应运行时；部分上游 README 的相对链接也会指向这些被排除的组件。`caveman-compress` 的备份路径由其脚本决定，可能使用运行时应用数据目录；使用前请审阅其 `SECURITY.md` 和脚本，不要假定备份一定与被处理文件相邻。
 
 上游同步请先运行 `check --all`，确认报告后再运行 `apply --all`。定期检查由 GitHub Actions 托管执行并创建 PR，无需在本机安装定时任务。详见 [sync-upstream-skills](skills/project/sync-upstream-skills/SKILL.md)。
+
+全局 skill 软链接管理器 [`manage-skills`](scripts/manage-skills/README.md) 从一个用户确认的 catalog 将 manifest-owned 相对软链接暴露到 DSH、Codex、Claude Code 或安全校验后的自定义全局目录。工具只管理全局目录，不管理项目级 `.agents/skills`/`.claude/skills`，不复制或修改源 skill；没有 manifest ownership 的链接受保护。DSH Web 是否启用本地 skill provider 仍需以实际 profile/preset 运行时验证为准；Pod 中的 catalog checkout 由维护者手动准备，工具不自动 clone 或更新。
