@@ -97,6 +97,16 @@ test('empty runtime selection prompts again instead of cancelling', async () => 
   assert.match(io.text(), /at least one|select.*runtime/i);
 });
 
+test('skill menu shows each skill source path after its name', async () => {
+  const io = scriptedIo('y\na\na\nn\n');
+  const result = await runInteractive({ ...dependencies([]), io });
+
+  assert.deepEqual(result, { cancelled: true });
+  assert.match(io.text(), /alpha \(alpha\)/);
+  assert.match(io.text(), /beta \(beta\)/);
+  assert.doesNotMatch(io.text(), /alpha \(alpha\/SKILL\.md\)/);
+});
+
 test('final rejection returns cancelled and never invokes a mutation dependency', async () => {
   const calls = [];
   const io = scriptedIo('y\na\na\nn\n');

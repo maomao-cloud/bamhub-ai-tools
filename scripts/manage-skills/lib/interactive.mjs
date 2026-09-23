@@ -36,7 +36,12 @@ function commandSelection(line, items) {
   if (indexes.length && indexes.every((index) => Number.isInteger(index) && index >= 0 && index < items.length)) return [...new Set(indexes)];
   return null;
 }
-function itemLabel(item) { return item?.label ?? item?.name ?? item?.relativeSource ?? item?.id ?? String(item); }
+function itemLabel(item) {
+  const label = item?.label ?? item?.name ?? item?.id ?? item?.relativeSource ?? item?.sourceRelative ?? String(item);
+  const source = item?.relativeSource ?? item?.sourceRelative;
+  if (!source) return label;
+  return `${label} (${source})`;
+}
 function renderMenu(io, title, items, selected, cursor) {
   write(io, `\n${title}\n`);
   items.forEach((item, index) => write(io, `${cursor === index ? '>' : ' '} [${selected.has(index) ? 'x' : ' '}] ${index + 1}. ${itemLabel(item)}\n`));
