@@ -150,7 +150,7 @@ test('wizard passes selected skill objects to plan builder', async () => {
 });
 
 // Avoid accidental reliance on a test-only assertion helper in the first test.
-test('confirmPlanSet renders every real Plan field and entry field without dropping data', async () => {
+test('confirmPlanSet renders a human-readable skill plan summary', async () => {
   const io = scriptedIo('y\n');
   await confirmPlanSet({
     plans: [{
@@ -183,15 +183,15 @@ test('confirmPlanSet renders every real Plan field and entry field without dropp
   }, io);
   const text = io.text();
   for (const value of [
-    'target', 'catalog', 'desired', 'create', 'remove', 'keep', 'conflicts', 'protected', 'fingerprint',
-    'dsh', '/target', 'canonicalPath', '10', '11',
-    '/catalog', 'gitRemote', 'abc123',
-    'skills/new', '/catalog/new', '../catalog/new',
-    'manifestEntry', 'sourceRelative', 'skills/old', '/catalog/old',
-    '/target/keep', '../catalog/keep',
-    'kind', '/target/conflict', 'foreign-link', 'foreign link',
-    '/target/manual', 'regular-file', 'protected', 'plan-fingerprint-123',
-  ]) assert.ok(text.includes(value), `missing preview field: ${value}`);
+    'DSH', '/target',
+    'Skills to enable (1)', 'new (skills/new)',
+    'Create (1)', '/target/new (/catalog/new) -> ../catalog/new',
+    'Remove (1)', 'old (skills/old)',
+    'Keep (1)', '/target/keep -> ../catalog/keep',
+    'Conflicts (1)', '/target/conflict: foreign link',
+    'Protected (1)', '/target/manual: protected',
+  ]) assert.ok(text.includes(value), `missing preview summary: ${value}`);
+  assert.doesNotMatch(text, /canonicalPath|gitRemote|plan-fingerprint-123|manifestEntry/);
 });
 
 class FakeRawInput {

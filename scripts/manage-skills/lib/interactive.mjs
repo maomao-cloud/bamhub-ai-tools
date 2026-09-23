@@ -221,16 +221,55 @@ function sanitizePreviewValue(value, seen = new WeakSet()) {
   );
 }
 
-function renderPlan(plan, io, heading = '') {
-  const sanitized = sanitizePreviewValue(plan);
-  write(io, `\n${heading}Plan\n`);
-  write(io, `${JSON.stringify(sanitized, null, 2)}\n`);
+function entryName(entry) {
+  if (entry?.linkName) return entry.linkName;
+  if (entry?.name) return entry.name;
+  if (entry?.linkPath) return entry.linkPath.split('/').filter(Boolean).at(-1);
+  return 'skill';
 }
+
+function entrySource(entry) {
+  return entry?.sourceRelative
+    ?? entry?.manifestEntry?.sourceRelative
+    ?? entry?.sourceDir;
+}
+
+function renderSection(io, title, entries, renderEntry) {
+  write(io, `${title} (${entries.length})${entries.length ? ':' : ': none'}\n`);
+  for (const entry of entries) write(io, `  ${renderEntry(entry)}\n`);
+}
+
+function renderPlan(plan, io, heading = '') {
+  const targetLabel = plan?.target?.label ?? plan?.target?.id ?? 'target';
+  const targetPath = plan?.target?.path ?? plan?.target?.canonicalPath ?? '(unknown path)';
+  write(io, `\n${heading}${targetLabel}: ${targetPath}\n`);
+  renderSection(io, 'Skills to enable', plan?.desired ?? [], (entry) => {
+    const source = entrySource(entry);
+    return `+ ${entryName(entry)}${source ? ` (${source})` : ''}`;
+  });
+  renderSection(io, 'Create', plan?.create ?? [], (entry) => {
+    const source = entrySource(entry);
+    const target = entry?.relativeTarget ? ` -> ${entry.relativeTarget}` : '';
+    const label = entry?.linkPath ?? entryName(entry);
+    return `+ ${label}${source ? ` (${source})` : ''}${target}`;
+  });
+  renderSection(io, 'Remove', plan?.remove ?? [], (entry) => {
+    const source = entrySource(entry);
+    return `- ${entryName(entry)}${source ? ` (${source})` : ''}`;
+  });
+  renderSection(io, 'Keep', plan?.keep ?? [], (entry) => {
+    const target = entry?.relativeTarget ? ` -> ${entry.relativeTarget}` : '';
+    return `= ${entry?.linkPath ?? entryName(entry)}${target}`;
+  });
+  renderSection(io, 'Conflicts', plan?.conflicts ?? [], (entry) => `${entry?.linkPath ?? entryName(entry)}: ${entry?.reason ?? entry?.kind ?? 'conflict'}`);
+  renderSection(io, 'Protected', plan?.protected ?? [], (entry) => `${entry?.linkPath ?? entryName(entry)}: ${entry?.reason ?? entry?.kind ?? 'protected'}`);
+}
+
 function renderPlanSet(planSet, io) {
   write(io, '\nPlanSet preview\n');
   for (const [index, plan] of (planSet?.plans ?? []).entries()) renderPlan(plan, io, `#${index + 1} `);
-  const { plans: _plans, ...summary } = planSet ?? {};
-  if (Object.keys(summary).length) renderPlan(summary, io, 'PlanSet summary ');
+  if (planSet?.conflicts?.length) renderSection(io, 'PlanSet conflicts', planSet.conflicts, (entry) => `${entry?.linkPath ?? entryName(entry)}: ${entry?.reason ?? entry?.kind ?? 'conflict'}`);
+  if (planSet?.protected?.length) renderSection(io, 'PlanSet protected', planSet.protected, (entry) => `${entry?.linkPath ?? entryName(entry)}: ${entry?.reason ?? entry?.kind ?? 'protected'}`);
 }
 
 export async function confirmPlanSet(planSet, io = {}) {
