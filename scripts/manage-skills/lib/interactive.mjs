@@ -171,7 +171,10 @@ function createSession(io) {
         error ? reject(value) : resolve(value);
       };
       const endHandler = () => finish(CANCEL, true);
-      const render = () => renderMenu(io, title, items, selected, cursor);
+      const render = () => {
+         write(io, '\u001b[2J\u001b[H');
+         renderMenu(io, title, items, selected, cursor);
+       };
       const onData = (chunk) => {
         escapeBuffer += String(chunk);
         while (escapeBuffer) {
@@ -260,10 +263,15 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
     const preparedRuntimes = typeof prepareTargets === 'function'
       ? await prepareTargets({ targets: runtimes, catalog, catalogRoot: catalog?.root ?? catalogRoot })
       : runtimes;
-    const targetChoice = await session.select('Select global runtime targets', preparedRuntimes);
+    let targetChoice;
+    let targets;
+    while (true) {
+    targetChoice = await session.select('Select global runtime targets', preparedRuntimes);
     if (targetChoice.disableAll) return { cancelled: true };
-    let targets = targetChoice.indexes.map((index) => preparedRuntimes[index]);
-    if (!targets.length) return { cancelled: true };
+    targets = targetChoice.indexes.map((index) => preparedRuntimes[index]);
+    if (targets.length) break;
+    write(io, 'At least one runtime target must be selected. Please try again.\n');
+    }
     if (typeof validateTargets === 'function') targets = await validateTargets({ targets, catalog, catalogRoot: catalog?.root ?? catalogRoot });
     const state = typeof scanState === 'function' ? await scanState({ targets, catalog, skills }) : null;
     const skillChoice = await session.select('Select desired skills', skills);
