@@ -102,8 +102,9 @@ test('skill menu shows each skill source path after its name', async () => {
   const result = await runInteractive({ ...dependencies([]), io });
 
   assert.deepEqual(result, { cancelled: true });
-  assert.match(io.text(), /alpha \(alpha\/SKILL\.md\)/);
-  assert.match(io.text(), /beta \(beta\/SKILL\.md\)/);
+  assert.match(io.text(), /alpha \(alpha\)/);
+  assert.match(io.text(), /beta \(beta\)/);
+  assert.doesNotMatch(io.text(), /alpha \(alpha\/SKILL\.md\)/);
 });
 
 test('final rejection returns cancelled and never invokes a mutation dependency', async () => {

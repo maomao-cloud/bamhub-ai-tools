@@ -40,8 +40,7 @@ function itemLabel(item) {
   const label = item?.label ?? item?.name ?? item?.id ?? item?.relativeSource ?? item?.sourceRelative ?? String(item);
   const source = item?.relativeSource ?? item?.sourceRelative;
   if (!source) return label;
-  const sourcePath = source.endsWith('/SKILL.md') ? source : `${source}/SKILL.md`;
-  return `${label} (${sourcePath})`;
+  return `${label} (${source})`;
 }
 function renderMenu(io, title, items, selected, cursor) {
   write(io, `\n${title}\n`);
