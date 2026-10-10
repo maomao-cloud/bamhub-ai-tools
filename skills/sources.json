@@ -4,8 +4,8 @@
     "superpowers": {
       "repository": "https://github.com/obra/superpowers.git",
       "ref": "main",
-      "acceptedCommit": "d884ae04edebef577e82ff7c4e143debd0bbec99",
-      "acceptedAt": "2026-07-22T08:08:25.040Z",
+      "acceptedCommit": "bb92a77741419a4ab5f06e711a283343f1ada0c3",
+      "acceptedAt": "2026-10-10T19:45:17.345Z",
       "roots": [
         {
           "upstream": "skills",
@@ -16,8 +16,8 @@
     "caveman": {
       "repository": "https://github.com/JuliusBrussee/caveman.git",
       "ref": "main",
-      "acceptedCommit": "0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0",
-      "acceptedAt": "2026-07-22T10:04:11.489Z",
+      "acceptedCommit": "2e08b9177c07bb7249a8a2d1a6758e5db281d002",
+      "acceptedAt": "2026-10-10T19:45:14.756Z",
       "roots": [
         {
           "upstream": "skills",
@@ -41,8 +41,8 @@
     "addyosmani-agent-skills": {
       "repository": "https://github.com/addyosmani/agent-skills.git",
       "ref": "main",
-      "acceptedCommit": "d2c37ef6225dd8726cdd369a8030307f48592d26",
-      "acceptedAt": "2026-08-31T00:00:00.000Z",
+      "acceptedCommit": "1be8e34187e34647bb83adc3a1323b26ae6f6abe",
+      "acceptedAt": "2026-10-10T19:45:12.282Z",
       "metadataFile": ".bamhub-sync.md",
       "roots": [
         {
