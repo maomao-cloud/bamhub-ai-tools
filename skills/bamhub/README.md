@@ -12,6 +12,7 @@ Bamhub 是本仓库自主维护、可在不同项目中复用的 Agent skill 集
 | 从已完成工作提炼可复用经验 | [`design-retrospective`](architecture/design-retrospective/SKILL.md) | 设计原则、结构模式和后续迁移建议。 |
 | 让多个仓库工具共用本地认证约定 | [`shared-auth`](integrations/shared-auth/SKILL.md) | 统一的 profile、凭据位置和登录模式选择。 |
 | 按服务、级别、关键词或 trace ID 查日志 | [`kibana-search`](integrations/kibana-search/SKILL.md) | 保留查询上下文的原始 Kibana 日志。 |
+| 查询、运行、重试云效流水线或排查其 403/空列表 | [`yunxiao-pipeline`](integrations/yunxiao-pipeline/SKILL.md) | 确认目标流水线、触发运行实例并轮询到终态。 |
 | 判断经验是否应写入项目规则 | [`rule-refine`](maintenance/rule-refine/SKILL.md) | 最小、可验证的规则候选与落点。 |
 | 让模块 README 跟上实际代码 | [`sync-module-doc`](maintenance/sync-module-doc/SKILL.md) | 更新后的模块 `README.md` 与差异说明。 |
 | 从 Git 提交生成版本日志 | [`version-changelog`](maintenance/version-changelog/SKILL.md) | 写入约定格式的 changelog 条目。 |
@@ -26,6 +27,7 @@ architecture/
 integrations/
   shared-auth ────────────┐  本地认证约定
   kibana-search ──────────┘  依赖认证 profile 查询日志
+  yunxiao-pipeline         云效流水线查询、触发与排查
 
 maintenance/
   rule-refine               维护项目规则

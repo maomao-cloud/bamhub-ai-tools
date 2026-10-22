@@ -12,6 +12,7 @@ const categorizedSkills = [
   'skills/bamhub/integrations/ai-capability/SKILL.md',
   'skills/bamhub/integrations/shared-auth/SKILL.md',
   'skills/bamhub/integrations/kibana-search/SKILL.md',
+  'skills/bamhub/integrations/yunxiao-pipeline/SKILL.md',
   'skills/bamhub/maintenance/rule-refine/SKILL.md',
   'skills/bamhub/maintenance/code-simplification-review/SKILL.md',
   'skills/bamhub/maintenance/project-finish-quality-gate/SKILL.md',
@@ -123,6 +124,47 @@ test('Darwin optimizer maps upstream workflow to Bamhub-owned skill paths', () =
     assert.match(optimizer, new RegExp(`不得优化.*${excluded.replace('/', '\\/')}`));
   }
   assert.match(optimizer, /用户确认|CHECKPOINT/);
+});
+
+test('yunxiao-pipeline keeps the verified MCP usage contract', () => {
+  const skill = fs.readFileSync(
+    path.join(repoRoot, 'skills/bamhub/integrations/yunxiao-pipeline/SKILL.md'),
+    'utf8'
+  );
+
+  // 认证与组织解析：必须用 get_user_organizations，而不是会 403 的 get_current_*
+  assert.match(skill, /get_user_organizations/);
+  assert.match(skill, /get_current_user/);
+  assert.match(skill, /get_current_organization_info/);
+  assert.match(skill, /403/);
+
+  // 列表接口选择：首选 smart_list_pipelines + all time
+  assert.match(skill, /smart_list_pipelines/);
+  assert.match(skill, /timeReference/);
+  assert.match(skill, /all time/);
+
+  // 已复现的参数陷阱
+  assert.match(skill, /createEndTime|executeEndTime/);
+  assert.match(skill, /pagination\.total/);
+  assert.match(skill, /list_pipeline_runs/);
+  assert.match(skill, /triggerMode/);
+
+  // 触发与轮询
+  assert.match(skill, /create_pipeline_run/);
+  assert.match(skill, /get_pipeline_run/);
+  assert.match(skill, /environmentVariables/);
+
+  // 空结果必须有有序排查与停止条件，不能凭单次空结果下结论
+  assert.match(skill, /## 空结果排查/);
+  assert.match(skill, /停止条件/);
+  assert.match(skill, /两个列表接口都返回空/);
+
+  // 结论有时效性声明，避免绝对化断言被当成永久事实
+  assert.match(skill, /以实际返回为准/);
+
+  // 边界：无用量接口、不写死环境事实
+  assert.match(skill, /没有用量\/核分查询接口/);
+  assert.match(skill, /不要写死/);
 });
 
 test('repository docs identify all managed and owned skill roots', () => {
