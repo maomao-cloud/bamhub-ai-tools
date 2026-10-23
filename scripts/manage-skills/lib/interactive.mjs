@@ -150,18 +150,18 @@ function createSession(io) {
     if (value === ESC || value === '\u0003' || value === 'escape' || value === 'ctrl-c') throw CANCEL;
     return value === 'y' || value === 'yes' || value === 'true' || value === '';
   }
-  async function select(title, items) {
+  async function select(title, items, initialIndexes = []) {
     if (!items.length) return { indexes: [] };
     if (!tty) {
       write(io, `\n${title}\n`);
-      items.forEach((item, index) => write(io, `  ${index + 1}. ${itemLabel(item)}\n`));
+      items.forEach((item, index) => write(io, `  [${initialIndexes.includes(index) ? 'x' : ' '}] ${index + 1}. ${itemLabel(item)}\n`));
       const answer = await line('Choose (a=all, n=none, numbers, d=disable all, Esc=cancel):');
-      const selection = commandSelection(answer, items);
-      if (selection === null) { write(io, 'Invalid selection; please try again.\n'); return select(title, items); }
+      const selection = answer.trim() === '' ? initialIndexes : commandSelection(answer, items);
+      if (selection === null) { write(io, 'Invalid selection; please try again.\n'); return select(title, items, initialIndexes); }
       return Array.isArray(selection) ? { indexes: selection } : selection;
     }
     return new Promise((resolve, reject) => {
-      const selected = new Set(); let cursor = 0; let done = false; let escapeBuffer = ''; let escapeTimer;
+      const selected = new Set(initialIndexes); let cursor = 0; let done = false; let escapeBuffer = ''; let escapeTimer;
       const clearEscapeTimer = () => {
         if (escapeTimer) clearTimeout(escapeTimer);
         escapeTimer = undefined;
@@ -318,8 +318,25 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
     }
     if (typeof validateTargets === 'function') targets = await validateTargets({ targets, catalog, catalogRoot: catalog?.root ?? catalogRoot });
     const state = typeof scanState === 'function' ? await scanState({ targets, catalog, skills }) : null;
-    const skillChoice = await session.select('Select desired skills', skills);
-    const desiredSelections = skillChoice.indexes.map((index) => skills[index]);
+    const skillItems = [...skills];
+    const initialIndexes = new Set();
+    for (const entry of Array.isArray(state?.entries) ? state.entries : []) {
+      if (!['managed-valid', 'managed-broken'].includes(entry.kind)) continue;
+      const mounted = entry.manifestEntry;
+      if (!mounted) continue;
+      const skill = skills.find((item) => item.relativeSource === mounted.sourceRelative);
+      if (!skill) continue;
+      let index = skillItems.findIndex((item) => item.relativeSource === mounted.sourceRelative
+        && (item.linkName ?? item.name) === mounted.linkName);
+      if (index === -1) {
+        index = skillItems.length;
+        skillItems.push({ ...skill, linkName: mounted.linkName, label: `${mounted.linkName} [${skill.name}]` });
+      }
+      initialIndexes.add(index);
+    }
+    write(io, 'Mounted managed skills are preselected. Unchecking removes their managed links. Multiple targets use one shared final selection.\n');
+    const skillChoice = await session.select('Select desired skills', skillItems, [...initialIndexes]);
+    const desiredSelections = skillChoice.indexes.map((index) => skillItems[index]);
     const disableAll = Boolean(skillChoice.disableAll);
     const options = state?.options ?? {};
     if (state?.manifests) options.manifestByTarget = state.manifests;

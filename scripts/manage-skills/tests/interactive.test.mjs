@@ -285,3 +285,53 @@ test('TTY EOF, SIGTERM, and dependency errors restore raw mode in finally', asyn
 });
 
 // Wrapper report retains the SDD artifact while this test file owns executable coverage.
+
+async function reenterWithMountedSkills(chunks, { alias = 'alpha', kind = 'managed-valid' } = {}) {
+  const calls = [];
+  const { io, input } = fakeTtyIo();
+  const promise = runInteractive({
+    ...dependencies(calls), io,
+    scanState: async () => ({ entries: [{ kind, manifestEntry: { sourceRelative: 'alpha', linkName: alias } }] }),
+  });
+  for (const chunk of ['y', ' ', '\r', ...chunks, 'y']) {
+    await new Promise((resolve) => setImmediate(resolve));
+    input.emit('data', chunk);
+  }
+  return { result: await promise, text: io.text(), calls };
+}
+
+test('reentry preselects mounted skills and adding beta retains alpha', async () => {
+  const { result, text } = await reenterWithMountedSkills(['\u001b[B', ' ', '\r']);
+  assert.match(text, /\[x\] 1\. alpha/);
+  assert.deepEqual(result.desiredSelections.map((skill) => skill.name), ['alpha', 'beta']);
+});
+
+test('reentry allows explicitly unchecking a mounted skill', async () => {
+  const { result } = await reenterWithMountedSkills([' ', '\u001b[B', ' ', '\r']);
+  assert.deepEqual(result.desiredSelections.map((skill) => skill.name), ['beta']);
+});
+
+test('reentry preserves mounted aliases without enabling the default name', async () => {
+  const { result } = await reenterWithMountedSkills(['\r'], { alias: 'my-alpha' });
+  assert.deepEqual(result.desiredSelections.map((skill) => [skill.name, skill.linkName]), [['alpha', 'my-alpha']]);
+});
+
+test('reentry does not preselect foreign or stale manifest entries', async () => {
+  const { result } = await reenterWithMountedSkills(['\u001b[B', ' ', '\r'], { kind: 'foreign-symlink' });
+  assert.deepEqual(result.desiredSelections.map((skill) => skill.name), ['beta']);
+});
+
+test('multiple targets preselect the union of mounted managed skills', async () => {
+  const io = scriptedIo('y\na\n\ny\n');
+  const result = await runInteractive({
+    ...dependencies([]), io,
+    scanState: async () => ({ entries: [
+      { kind: 'managed-valid', manifestEntry: { sourceRelative: 'alpha', linkName: 'alpha' } },
+      { kind: 'managed-valid', manifestEntry: { sourceRelative: 'beta', linkName: 'beta' } },
+      { kind: 'managed-valid', manifestEntry: { sourceRelative: 'alpha', linkName: 'alpha' } },
+    ] }),
+  });
+  assert.deepEqual(result.desiredSelections.map((skill) => skill.name), ['alpha', 'beta']);
+  assert.match(io.text(), /\[x\] 1\. alpha/);
+  assert.match(io.text(), /\[x\] 2\. beta/);
+});
