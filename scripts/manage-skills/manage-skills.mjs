@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 import { resolveCatalog, discoverCatalog, resolveSelectors } from './lib/catalog.mjs';
 import { detectRuntimeTargets, resolveTargetSelection, validateTarget } from './lib/targets.mjs';
@@ -7,7 +8,7 @@ import { stateRootForTarget, loadManifest } from './lib/state.mjs';
 import { scanTarget, validateCatalogSkills } from './lib/links.mjs';
 import { buildPlanSet } from './lib/plan.mjs';
 import { applyPlanSet, recoverJournal } from './lib/transaction.mjs';
-import { confirmPlanSet, runInteractive } from './lib/interactive.mjs';
+import { confirmPlanSet, runInteractive, runManagementMenu } from './lib/interactive.mjs';
 
 const COMMANDS = new Set(['status', 'plan', 'apply', 'recover']);
 
@@ -202,6 +203,22 @@ async function executeInteractive(options, streams) {
   return reportFor({ ok: exitCode === 0, exitCode, catalog: { root: result.catalogRoot }, targets: targetResults });
 }
 
+async function executeMenu(options, streams) {
+  if (!streams.stdin?.isTTY || !streams.stdout?.isTTY) throw cliError('INTERACTIVE_REQUIRED', 'Interactive mode requires a TTY');
+  const outcome = await runManagementMenu({
+    io: { input: streams.stdin, output: streams.stdout, isTTY: true },
+    repoRoot: fileURLToPath(new URL('../..', import.meta.url)),
+    manage: () => executeInteractive(options, streams),
+    allowUpstream: !options.catalog && !options.runtimes.length && !options.target
+      && !options.enables.length && !options['disable-all'] && !options['dry-run']
+      && !options['state-root'] && !options.journal && !options['non-interactive'],
+  });
+  if (outcome.cancelled || outcome.result?.cancelled) throw cliError('CANCELLED', 'Selection cancelled', 2);
+  if (outcome.mode === 'manage') return outcome.result;
+  const result = outcome.result;
+  return { ...reportFor({ ok: result.exitCode === 0, exitCode: result.exitCode, catalog: null }), upstream: result };
+}
+
 export async function main(argv = process.argv.slice(2), streams = process) {
   let options;
   try {
@@ -214,7 +231,8 @@ export async function main(argv = process.argv.slice(2), streams = process) {
     }
     const report = options.command === 'recover'
       ? await executeRecover(options)
-      : needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
+      : options.command === 'interactive' ? await executeMenu(options, streams)
+        : needsInteractiveSelection ? await executeInteractive(options, streams) : await executeExplicit(options, streams);
     writeOutput(report, { json: Boolean(options.json) }, streams);
     return report.exitCode;
   } catch (error) {

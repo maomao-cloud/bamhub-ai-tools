@@ -10,6 +10,15 @@
 scripts/manage-skills/manage-skills
 ```
 
+默认交互入口先选择功能：
+
+1. **管理当前环境的 skills**：原有全局挂载管理流程，回显已有勾选。
+2. **拉取上游 skills**：多选来源（a=全部），逐来源 check 并展示状态、提交号和文件变化；确认后仅对 update-available 来源 apply。一个来源失败不阻断其他来源，整体返回失败状态；无更新时不要求确认。
+
+上游分支固定同步**脚本所在仓库**的 `skills/sources.json` 配置，不使用当前工作目录或 `--catalog` 作为写入目标。选择上游功能时不接受挂载专属参数，请不带参数启动。功能菜单为单选：默认高亮第一项，上下键切换，Enter 直接进入，无需按 Space；Esc 取消。来源、运行时和 skills 列表仍为多选。
+
+上游更新不会执行本仓库 `git pull`，不会自动提交、推送、修改运行时软链接或 manifest，不使用 `--force`。存在本地修改时保留同步器的拒绝覆盖机制。更新会改变 catalog 源内容，因此已有挂载可能立即读到更新后的内容；更新后如需调整挂载，请重新进入管理分支。原有显式命令不经过功能菜单。
+
 显式使用参数时：
 
 ```bash
@@ -23,6 +32,10 @@ scripts/manage-skills/manage-skills.mjs recover --state-root <path> --journal <p
 ```bash
 scripts/manage-skills/manage-skills.mjs apply --catalog <path> --runtime dsh --disable-all --yes
 ```
+
+## 终端显示
+
+交互菜单只原地重绘当前菜单区域，不清空整个屏幕；完成选择后折叠为一行结果摘要，前面步骤的输出保留。长列表根据终端高度显示最多 10 项，窗口随光标滚动；超长行按终端宽度截断显示，不改变实际名称和路径。菜单退出（包括取消）恢复光标与 raw mode。不支持 TTY 的显式命令仍输出普通文本或 JSON。
 
 ## 交互选择与重新进入
 
@@ -43,7 +56,7 @@ catalog 的优先级固定为（显式 --catalog 优先）：
 3. 从脚本位置推导本仓库的 `skills/`；
 4. 交互式输入路径。
 
-显式参数或环境变量指向无效路径时直接报错，不会回退到其他候选。工具只读取一个 catalog，要求它是可读目录；不会创建缺失目录，也不会 clone、pull、fetch、checkout、reset 或自动更新 catalog。Pod 中的 bamhub checkout 必须由维护者先手动放入 `/work` PVC（这是手动 checkout 前置条件），并在运行前确认 checkout 是可用 Git 工作树且包含 `skills/`；工具不负责 checkout 或同步。
+显式参数或环境变量指向无效路径时直接报错，不会回退到其他候选。挂载管理分支只读取一个 catalog，要求它是可读目录；不会创建缺失目录，也不会 clone、pull、fetch、checkout、reset 或自动更新 catalog。Pod 中的 bamhub checkout 必须由维护者先手动放入 `/work` PVC（这是手动 checkout 前置条件），并在运行前确认 checkout 是可用 Git 工作树且包含 `skills/`；工具不负责 checkout 或同步。
 
 ## 归属与保护规则
 
@@ -80,7 +93,7 @@ test -d <checkout>/skills
 git -C <checkout> status --short
 ```
 
-不要把某个当前 checkout 路径硬编码为默认值；使用时通过 `--catalog <checkout>/skills` 或 `MANAGE_SKILLS_CATALOG` 传入实际路径。工具没有自动 clone、自动 pull 或自动 sync 行为；也就是不自动 clone、不自动更新 catalog。
+不要把某个当前 checkout 路径硬编码为默认值；使用时通过 `--catalog <checkout>/skills` 或 `MANAGE_SKILLS_CATALOG` 传入实际路径。挂载管理分支不自动 clone、不自动更新 catalog，也不自动 pull 或 sync。上游分支经选择和确认后会通过现有同步器获取上游并更新受管目录，但不负责创建或拉取本仓库 checkout。
 
 ## 安全检查与验证
 

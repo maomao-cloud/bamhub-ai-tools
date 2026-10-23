@@ -2,6 +2,7 @@ import readline from 'node:readline';
 
 import { discoverCatalog as defaultDiscoverCatalog } from './catalog.mjs';
 import { buildPlanSet as defaultBuildPlanSet } from './plan.mjs';
+import { runUpstreamSync } from './upstream.mjs';
 
 const CANCEL = Symbol('interactive-cancel');
 const ESC = '\u001b';
@@ -42,10 +43,18 @@ function itemLabel(item) {
   if (!source) return label;
   return `${label} (${source})`;
 }
-function renderMenu(io, title, items, selected, cursor) {
-  write(io, `\n${title}\n`);
-  items.forEach((item, index) => write(io, `${cursor === index ? '>' : ' '} [${selected.has(index) ? 'x' : ' '}] ${index + 1}. ${itemLabel(item)}\n`));
-  write(io, '  (a=all, n=none, Space=toggle, Enter=continue, Esc=cancel)\n');
+// Keep each rendered row within the terminal width so local cursor movement is predictable.
+function terminalLine(value, columns) {
+  const clean = String(value).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ');
+  let width = 0;
+  let result = '';
+  for (const char of clean) {
+    const size = char.codePointAt(0) > 0x7e ? 2 : 1;
+    if (width + size > columns - 2) return `${result}…`;
+    result += char;
+    width += size;
+  }
+  return result;
 }
 
 function createSession(io) {
@@ -150,18 +159,20 @@ function createSession(io) {
     if (value === ESC || value === '\u0003' || value === 'escape' || value === 'ctrl-c') throw CANCEL;
     return value === 'y' || value === 'yes' || value === 'true' || value === '';
   }
-  async function select(title, items, initialIndexes = []) {
+  async function select(title, items, initialIndexes = [], { single = false } = {}) {
     if (!items.length) return { indexes: [] };
     if (!tty) {
       write(io, `\n${title}\n`);
-      items.forEach((item, index) => write(io, `  [${initialIndexes.includes(index) ? 'x' : ' '}] ${index + 1}. ${itemLabel(item)}\n`));
-      const answer = await line('Choose (a=all, n=none, numbers, d=disable all, Esc=cancel):');
-      const selection = answer.trim() === '' ? initialIndexes : commandSelection(answer, items);
-      if (selection === null) { write(io, 'Invalid selection; please try again.\n'); return select(title, items, initialIndexes); }
+      items.forEach((item, index) => write(io, single
+        ? `  ${index === 0 ? '>' : ' '} ${index + 1}. ${itemLabel(item)}\n`
+        : `  [${initialIndexes.includes(index) ? 'x' : ' '}] ${index + 1}. ${itemLabel(item)}\n`));
+      const answer = await line(single ? 'Choose one number (Enter=1, Esc=cancel):' : 'Choose (a=all, n=none, numbers, d=disable all, Esc=cancel):');
+      const selection = answer.trim() === '' ? (single ? [0] : initialIndexes) : commandSelection(answer, items);
+      if (selection === null || (single && (!Array.isArray(selection) || selection.length !== 1))) { write(io, 'Invalid selection; please try again.\n'); return select(title, items, initialIndexes, { single }); }
       return Array.isArray(selection) ? { indexes: selection } : selection;
     }
     return new Promise((resolve, reject) => {
-      const selected = new Set(initialIndexes); let cursor = 0; let done = false; let escapeBuffer = ''; let escapeTimer;
+      const selected = new Set(initialIndexes); let cursor = 0; let done = false; let renderedRows = 0; let escapeBuffer = ''; let escapeTimer;
       const clearEscapeTimer = () => {
         if (escapeTimer) clearTimeout(escapeTimer);
         escapeTimer = undefined;
@@ -173,13 +184,34 @@ function createSession(io) {
         input.off?.('data', onData); input.off?.('end', endHandler);
         if (raw && typeof input.setRawMode === 'function') input.setRawMode(false);
         raw = false;
+        eraseMenu();
+        const names = error ? 'cancelled' : single ? itemLabel(items[value.indexes[0]])
+          : `${value.indexes.length} selected: ${value.indexes.map((index) => itemLabel(items[index])).join(', ')}`;
+        write(io, `${terminalLine(`✔ ${title}: ${names}`, output.columns ?? 100)}\n\u001b[?25h`);
         error ? reject(value) : resolve(value);
       };
       const endHandler = () => finish(CANCEL, true);
+      const eraseMenu = () => {
+        // The cursor sits on the blank line just below our menu. Never clear prior output.
+        for (let row = 0; row < renderedRows; row += 1) write(io, '\u001b[1A\r\u001b[2K');
+        renderedRows = 0;
+      };
       const render = () => {
-         write(io, '\u001b[2J\u001b[H');
-         renderMenu(io, title, items, selected, cursor);
-       };
+        eraseMenu();
+        const height = Math.max(1, Math.min(10, (output.rows ?? 24) - 5));
+        const start = Math.max(0, Math.min(cursor - Math.floor(height / 2), items.length - height));
+        const end = Math.min(items.length, start + height);
+        const lines = [title];
+        for (let index = start; index < end; index += 1) {
+          lines.push(`${cursor === index ? '>' : ' '} ${single ? '' : `[${selected.has(index) ? 'x' : ' '}] `}${index + 1}. ${itemLabel(items[index])}`);
+        }
+        if (items.length > height) lines.push(`  ${start + 1}-${end} / ${items.length} · ${selected.size} selected`);
+        lines.push(single ? '  (Up/Down=move, Enter=confirm, Esc=cancel)'
+          : '  (Up/Down=move, a=all, n=none, Space=toggle, Enter=continue, Esc=cancel)');
+        write(io, '\u001b[?25l');
+        for (const line of lines) write(io, `${terminalLine(line, output.columns ?? 100)}\n`);
+        renderedRows = lines.length;
+      };
       const onData = (chunk) => {
         escapeBuffer += String(chunk);
         while (escapeBuffer) {
@@ -190,10 +222,11 @@ function createSession(io) {
           const char = escapeBuffer[0]; escapeBuffer = escapeBuffer.slice(1);
           if (char === '\u0003') return finish(CANCEL, true);
           if (char === ESC) continue;
+          if (single && ['a', 'n', ' '].includes(char)) continue;
           if (char === 'a') { items.forEach((_, index) => selected.add(index)); render(); continue; }
           if (char === 'n') { selected.clear(); render(); continue; }
           if (char === ' ') { selected.has(cursor) ? selected.delete(cursor) : selected.add(cursor); render(); continue; }
-          if (char === '\r' || char === '\n') return finish({ indexes: [...selected].sort((a, b) => a - b) });
+          if (char === '\r' || char === '\n') return finish({ indexes: single ? [cursor] : [...selected].sort((a, b) => a - b) });
           if (char === 'b' || char === 'k') { cursor = Math.max(0, cursor - 1); render(); continue; }
           if (char === 'f' || char === 'j') { cursor = Math.min(items.length - 1, cursor + 1); render(); continue; }
         }
@@ -350,3 +383,22 @@ export async function runInteractive({ catalogResolver, targetDetector, discover
 }
 
 export { renderPlanSet };
+
+export async function runManagementMenu({ io, repoRoot, manage, upstream = runUpstreamSync, allowUpstream = true }) {
+  const session = createSession(io);
+  try {
+    const items = [
+      { name: '管理当前环境的 skills / Manage current environment skills' },
+      { name: '拉取上游 skills / Pull upstream skills' },
+    ];
+    const choice = await session.select('请选择功能 / Select function', items, [], { single: true });
+    if (choice.indexes[0] === 1) {
+      if (!allowUpstream) throw Object.assign(new Error('Upstream sync does not accept mount-specific options; run without arguments'), { code: 'UPSTREAM_OPTION_CONFLICT', exitCode: 2 });
+      return { mode: 'upstream', result: await upstream({ session, io, repoRoot }) };
+    }
+  } catch (error) {
+    if (error === CANCEL) return { cancelled: true };
+    throw error;
+  } finally { session.cleanup(); }
+  return { mode: 'manage', result: await manage() };
+}

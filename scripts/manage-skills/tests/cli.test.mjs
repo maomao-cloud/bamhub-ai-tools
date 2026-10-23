@@ -209,7 +209,7 @@ test('default interactive maps transaction failure to exit one and retains targe
   const dshSkills = path.join(f.env.DSH_HOME, 'skills');
   await fs.mkdir(dshSkills);
   await fs.writeFile(path.join(dshSkills, 'alpha'), 'protected');
-  const result = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', 'a', '\r', 'y']);
+  const result = await runTTY(['--catalog', f.catalog], f.env, ['\r', 'y', ' ', '\r', 'a', '\r', 'y']);
   assert.equal(result.code, 1, `${result.stdout}\n${result.stderr}`);
   const report = parsePrettyReport(result.stdout);
   assert.equal(report.ok, false);
@@ -226,7 +226,7 @@ test('default interactive loads manifest ownership before applying desired state
   assert.equal(applied.code, 0, `${applied.stdout}\n${applied.stderr}`);
   assert.equal((await fs.lstat(path.join(dshSkills, 'alpha'))).isSymbolicLink(), true);
 
-  const result = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', 'n', '\r', 'y']);
+  const result = await runTTY(['--catalog', f.catalog], f.env, ['\r', 'y', ' ', '\r', 'n', '\r', 'y']);
   assert.equal(result.code, 0, `${result.stdout}\n${result.stderr}`);
   const report = parsePrettyReport(result.stdout);
   assert.equal(report.targets.length, 1);
@@ -356,12 +356,28 @@ test('interactive reentry keeps mounted alpha when adding beta and removes only 
   await fs.writeFile(path.join(beta, 'SKILL.md'), '---\nname: beta\ndescription: Beta\n---\n');
   const initial = await run(['apply', '--catalog', f.catalog, '--runtime', 'dsh', '--enable', 'alpha', '--yes', '--json'], f.env);
   assert.equal(initial.code, 0, initial.stderr);
-  const added = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', '\u001b[B', ' ', '\r', 'y']);
+  const added = await runTTY(['--catalog', f.catalog], f.env, ['\r', 'y', ' ', '\r', '\u001b[B', ' ', '\r', 'y']);
   assert.equal(added.code, 0, added.stderr);
   assert.match(added.stdout, /\[x\] 1\. alpha/);
   const target = path.join(f.env.DSH_HOME, 'skills');
   assert.deepEqual(await fs.readdir(target), ['alpha', 'beta']);
-  const removed = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', ' ', '\r', 'y']);
+  const removed = await runTTY(['--catalog', f.catalog], f.env, ['\r', 'y', ' ', '\r', ' ', '\r', 'y']);
   assert.equal(removed.code, 0, removed.stderr);
   assert.deepEqual(await fs.readdir(target), ['beta']);
+});
+
+test('default CLI function menu cancels before catalog or target writes', async () => {
+  const f = await fixture();
+  const result = await runTTY([], f.env, ['\u001b']);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stdout, /Select function/);
+  assert.equal(await fs.stat(path.join(f.env.DSH_HOME, 'skills')).then(() => true, () => false), false);
+});
+
+test('upstream menu rejects mount options without starting a network check', async () => {
+  const f = await fixture();
+  const result = await runTTY(['--catalog', f.catalog], f.env, ['\u001b[B', '\r']);
+  assert.equal(result.code, 2, result.stderr);
+  assert.match(result.stderr, /mount-specific/);
+  assert.doesNotMatch(result.stdout, /Select upstream sources/);
 });

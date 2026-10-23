@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable, Writable } from 'node:stream';
 
-import { confirmPlanSet, runInteractive } from '../lib/interactive.mjs';
+import { confirmPlanSet, runInteractive, runManagementMenu } from '../lib/interactive.mjs';
 
 function scriptedIo(input) {
   const output = [];
@@ -334,4 +334,86 @@ test('multiple targets preselect the union of mounted managed skills', async () 
   assert.deepEqual(result.desiredSelections.map((skill) => skill.name), ['alpha', 'beta']);
   assert.match(io.text(), /\[x\] 1\. alpha/);
   assert.match(io.text(), /\[x\] 2\. beta/);
+});
+
+
+test('function menu routes upstream without invoking mount management', async () => {
+  const io = scriptedIo('2\n');
+  const calls = [];
+  const result = await runManagementMenu({ io, repoRoot: '/repo',
+    manage: () => { throw new Error('mount management must not run'); },
+    upstream: async ({ repoRoot }) => { calls.push(repoRoot); return { exitCode: 0 }; },
+  });
+  assert.equal(result.mode, 'upstream');
+  assert.deepEqual(calls, ['/repo']);
+});
+
+test('function menu cancellation never invokes either workflow', async () => {
+  const io = scriptedIo('escape\n');
+  const unexpected = () => { throw new Error('unexpected workflow'); };
+  assert.deepEqual(await runManagementMenu({ io, manage: unexpected, upstream: unexpected }), { cancelled: true });
+});
+
+test('upstream rejects mount-specific options before calling sync', async () => {
+  const io = scriptedIo('2\n');
+  await assert.rejects(runManagementMenu({ io, allowUpstream: false,
+    upstream: () => { throw new Error('unexpected sync'); },
+  }), { code: 'UPSTREAM_OPTION_CONFLICT' });
+});
+
+test('function menu Enter directly accepts the highlighted default without checkbox toggles', async () => {
+  const { io, input } = fakeTtyIo();
+  const promise = runManagementMenu({ io, manage: async () => 'managed' });
+  input.emit('data', '\r');
+  // Prevent a broken multi-select implementation from waiting forever.
+  await new Promise((resolve) => setImmediate(resolve));
+  input.emit('data', '\u0003');
+  const result = await promise;
+  assert.equal(result.mode, 'manage');
+  assert.equal(result.result, 'managed');
+  assert.doesNotMatch(io.text(), /\[ \]|Space=toggle|a=all/);
+});
+
+test('function menu arrow then Enter selects upstream without Space', async () => {
+  const { io, input } = fakeTtyIo();
+  const promise = runManagementMenu({ io, upstream: async () => 'synced' });
+  input.emit('data', '\u001b[B');
+  input.emit('data', '\r');
+  await new Promise((resolve) => setImmediate(resolve));
+  input.emit('data', '\u0003');
+  const result = await promise;
+  assert.equal(result.mode, 'upstream');
+  assert.equal(result.result, 'synced');
+});
+
+test('TTY menus redraw locally and retain a completed selection summary', async () => {
+  const { io, input } = fakeTtyIo();
+  const promise = runManagementMenu({ io, manage: async () => 'ok' });
+  input.emit('data', '\u001b[B');
+  input.emit('data', '\u001b[A');
+  input.emit('data', '\r');
+  await promise;
+  assert.doesNotMatch(io.text(), /\u001b\[2J|\u001b\[H/);
+  assert.match(io.text(), /✔.*Select function.*Manage current environment skills/);
+  assert.match(io.text(), /\u001b\[\?25h/);
+});
+
+test('long TTY menus render a bounded window that follows the cursor', async () => {
+  const { io, input } = fakeTtyIo();
+  io.output.rows = 12;
+  io.output.columns = 80;
+  const skills = Array.from({ length: 40 }, (_, i) => ({ name: `skill-${i + 1}` }));
+  const promise = runInteractive({ ...dependencies([]), io,
+    discoverCatalog: async () => ({ root: '/catalog', skills }),
+  });
+  for (const chunk of ['y', ' ', '\r']) {
+    await new Promise((resolve) => setImmediate(resolve)); input.emit('data', chunk);
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.doesNotMatch(io.text(), /40\. skill-40/);
+  for (let i = 0; i < 39; i += 1) input.emit('data', '\u001b[B');
+  assert.match(io.text(), /> \[ \] 40\. skill-40/);
+  input.emit('data', '\u0003');
+  assert.equal((await promise).cancelled, true);
+  assert.match(io.text(), /\u001b\[\?25h/);
 });
