@@ -24,7 +24,8 @@ test('Superpowers target contains only managed skills and its generated README',
   assert.ok(entries.includes('README.md'));
   assert.ok(entries.includes('brainstorming'));
   assert.ok(entries.includes('test-driven-development'));
-  assert.equal(entries.filter((entry) => entry !== 'README.md').length, 14);
+  assert.ok(entries.includes('diagnosing-superpowers'));
+  assert.equal(entries.filter((entry) => entry !== 'README.md').length, 15);
   assert.equal(await exists(root, 'skills/superpowers/.claude-plugin'), false);
   assert.equal(await exists(root, 'skills/superpowers/hooks'), false);
   const readme = await read(root, 'skills/superpowers/README.md');
@@ -42,17 +43,34 @@ test('Caveman target contains the complete managed skill set and generated READM
     'caveman',
     'caveman-commit',
     'caveman-compress',
+    'caveman-discover',
+    'caveman-evidence-review',
+    'caveman-explore',
     'caveman-help',
+    'caveman-learn',
+    'caveman-manage',
+    'caveman-optimize',
     'caveman-review',
-    'caveman-stats'
+    'caveman-setup',
+    'caveman-stats',
+    'investigate-first',
+    'lean-build',
+    'megacave',
+    'safe-refactor',
+    'surgical-patch',
+    'ultracave',
+    'verify-and-stop'
   ];
 
-  assert.deepEqual(entries, ['README.md', ...skills]);
+  assert.deepEqual(entries, ['README.md', ...skills,
+    'activation-rule.mjs', 'compile.mjs', 'engine-mcp-tools.json',
+    'generated', 'migration', 'native', 'registry.json', 'verbs-gate.mjs'
+  ].sort());
   assert.deepEqual(source, {
     repository: 'https://github.com/JuliusBrussee/caveman.git',
     ref: 'main',
-    acceptedCommit: '0d95a81d35a9f2d123a5e9430d1cfc43d55f1bb0',
-    acceptedAt: '2026-07-22T10:04:11.489Z',
+    acceptedCommit: 'b4531dfc05a3ef0ba93b57e8bfa5f48564a4b4d6',
+    acceptedAt: '2026-10-23T06:30:06.440Z',
     roots: [{ upstream: 'skills', target: 'skills/caveman' }]
   });
   for (const skill of skills) {
