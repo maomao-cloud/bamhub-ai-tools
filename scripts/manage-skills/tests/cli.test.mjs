@@ -348,3 +348,20 @@ test('Task 8 report separates bamhub docs from maomao-deploy documentation', asy
   assert.match(text, /当前 worktree 不修改该仓库/);
 });
 
+
+test('interactive reentry keeps mounted alpha when adding beta and removes only when unchecked', async () => {
+  const f = await fixture();
+  const beta = path.join(f.catalog, 'group', 'beta');
+  await fs.mkdir(beta);
+  await fs.writeFile(path.join(beta, 'SKILL.md'), '---\nname: beta\ndescription: Beta\n---\n');
+  const initial = await run(['apply', '--catalog', f.catalog, '--runtime', 'dsh', '--enable', 'alpha', '--yes', '--json'], f.env);
+  assert.equal(initial.code, 0, initial.stderr);
+  const added = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', '\u001b[B', ' ', '\r', 'y']);
+  assert.equal(added.code, 0, added.stderr);
+  assert.match(added.stdout, /\[x\] 1\. alpha/);
+  const target = path.join(f.env.DSH_HOME, 'skills');
+  assert.deepEqual(await fs.readdir(target), ['alpha', 'beta']);
+  const removed = await runTTY(['--catalog', f.catalog], f.env, ['y', ' ', '\r', ' ', '\r', 'y']);
+  assert.equal(removed.code, 0, removed.stderr);
+  assert.deepEqual(await fs.readdir(target), ['beta']);
+});

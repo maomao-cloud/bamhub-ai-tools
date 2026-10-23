@@ -178,7 +178,13 @@ async function executeInteractive(options, streams) {
       const identity = await validateTarget({ targetPath: target.path, catalogRoot, mode: target.id });
       return { ...target, ...identity, stateRoot: target.stateRoot };
     })),
-    scanState: ({ targets, catalog }) => manifestsFor(targets, catalog).then((manifests) => ({ manifests })),
+    scanState: async ({ targets, catalog }) => {
+      const manifests = await manifestsFor(targets, catalog);
+      const entries = (await Promise.all(targets.map((target) => scanTarget({
+        targetIdentity: target, catalog, manifest: manifests.get(target.path),
+      })))).flat();
+      return { manifests, entries };
+    },
   });
   if (result?.cancelled) throw cliError('CANCELLED', 'Interactive selection cancelled', 2);
   const applyResult = result?.applyResult;

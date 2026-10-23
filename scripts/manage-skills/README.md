@@ -24,6 +24,16 @@ scripts/manage-skills/manage-skills.mjs recover --state-root <path> --journal <p
 scripts/manage-skills/manage-skills.mjs apply --catalog <path> --runtime dsh --disable-all --yes
 ```
 
+## 交互选择与重新进入
+
+选择运行时后，工具会读取 manifest 并校验实际挂载，把当前 catalog 中已由本工具管理的 skills 默认勾选（已有别名按原链接名称显示和保留）。不是每次重新进入都从空集合开始，也不是提交时无条件追加旧状态。
+
+- 保持旧勾选并勾选新 skill：保留旧挂载，新增新挂载。
+- 取消旧 skill 的勾选：在最终预览中列入 remove，确认后移除。
+- 同时选择多个运行时：默认勾选各目标已有受管理 skills 的并集；最终勾选集统一应用到所有选中的目标，可能将某目标已有的 skill 新增到另一目标。
+- foreign/unmanaged 链接不自动勾选或接管，仍遵循保护规则。只有 manifest 记录但实际链接已不存在的条目，不作为已挂载项回显。
+- TTY 中按 Space 切换、Enter 提交当前勾选；行输入模式中直接 Enter 保留默认勾选，输入编号则指定完整最终集合。
+
 ## Catalog 选择与来源
 
 catalog 的优先级固定为（显式 --catalog 优先）：
