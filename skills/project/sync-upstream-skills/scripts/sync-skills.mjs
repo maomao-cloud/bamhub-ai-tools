@@ -434,7 +434,7 @@ async function appendDirectoryDigest(hash, root, relativePath, metadataFile) {
   const names = (await fs.readdir(absolutePath)).sort();
   for (const name of names) {
     const entryPath = path.join(relativePath, name);
-    if (entryPath === metadataFile) continue;
+    if (name === '.git' || entryPath === metadataFile) continue;
     await appendDirectoryDigest(hash, root, entryPath, metadataFile);
   }
 }

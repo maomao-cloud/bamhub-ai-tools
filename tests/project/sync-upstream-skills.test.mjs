@@ -253,6 +253,41 @@ test('an upstream root may be the repository root', async (t) => {
   assert.equal(result.report.sources.demo.status, 'update-available');
 });
 
+test('repository-root apply ignores Git metadata while preserving dirty-target protection', async (t) => {
+  const fixture = await createFixture({ sourceFiles: { 'SKILL.md': skill('root'), 'README.md': 'Upstream documentation\n' } });
+  t.after(() => fs.rm(fixture.tempRoot, { recursive: true, force: true }));
+  const manifest = await readManifest(fixture.repoRoot);
+  manifest.sources.demo.roots[0].upstream = '.';
+  manifest.sources.demo.metadataFile = '.bamhub-sync.md';
+  await write(fixture.repoRoot, 'skills/sources.json', JSON.stringify(manifest, null, 2) + '\n');
+
+  const initial = await runCli(['apply', '--source', 'demo'], fixture);
+  assert.equal(initial.report.sources.demo.status, 'applied');
+  assert.equal(await exists(fixture.repoRoot, 'skills/demo-source/.git'), false);
+  const before = await snapshot(fixture.repoRoot);
+
+  const repeated = await runCli(['apply', '--source', 'demo'], fixture);
+  assert.equal(repeated.report.sources.demo.status, 'up-to-date');
+  assert.deepEqual(await snapshot(fixture.repoRoot), before);
+
+  await write(fixture.sourceRoot, 'SKILL.md', skill('root', 'updated skill'));
+  await git(fixture.sourceRoot, 'add', '.');
+  await git(fixture.sourceRoot, 'commit', '-m', 'update root skill');
+  const updated = await runCli(['apply', '--source', 'demo'], fixture);
+  assert.equal(updated.report.sources.demo.status, 'applied');
+  assert.equal(await read(fixture.repoRoot, 'skills/demo-source/SKILL.md'), skill('root', 'updated skill'));
+  assert.equal(await read(fixture.repoRoot, 'skills/demo-source/README.md'), 'Upstream documentation\n');
+  assert.equal(await exists(fixture.repoRoot, 'skills/demo-source/.git'), false);
+
+  await write(fixture.repoRoot, 'skills/demo-source/SKILL.md', skill('root', 'local changes'));
+  const dirty = await snapshot(fixture.repoRoot);
+  await assert.rejects(
+    () => runCli(['apply', '--source', 'demo'], fixture),
+    (error) => error.code === 'TARGET_DIRTY'
+  );
+  assert.deepEqual(await snapshot(fixture.repoRoot), dirty);
+});
+
 test('a configured upstream root symlink fails without repository writes', async (t) => {
   const fixture = await createFixture({
     sourceFiles: { 'real-skills/demo/SKILL.md': skill('demo') },
