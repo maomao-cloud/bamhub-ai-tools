@@ -16,8 +16,8 @@
     "caveman": {
       "repository": "https://github.com/JuliusBrussee/caveman.git",
       "ref": "main",
-      "acceptedCommit": "b4531dfc05a3ef0ba93b57e8bfa5f48564a4b4d6",
-      "acceptedAt": "2026-10-23T06:30:06.440Z",
+      "acceptedCommit": "1f951fb4ad40ba63302c6e7f987147e034d599d9",
+      "acceptedAt": "2026-10-24T18:34:53.111Z",
       "roots": [
         {
           "upstream": "skills",
