@@ -16,8 +16,8 @@
     "caveman": {
       "repository": "https://github.com/JuliusBrussee/caveman.git",
       "ref": "main",
-      "acceptedCommit": "b4531dfc05a3ef0ba93b57e8bfa5f48564a4b4d6",
-      "acceptedAt": "2026-10-23T06:30:06.440Z",
+      "acceptedCommit": "9b68f7ed12b05e7efaff18e65c5a3fc2849fd0a4",
+      "acceptedAt": "2026-10-30T20:23:40.941Z",
       "roots": [
         {
           "upstream": "skills",
@@ -41,8 +41,8 @@
     "addyosmani-agent-skills": {
       "repository": "https://github.com/addyosmani/agent-skills.git",
       "ref": "main",
-      "acceptedCommit": "aeac41d4d005999432bb7312f7ff06383a91d59d",
-      "acceptedAt": "2026-10-23T06:29:55.364Z",
+      "acceptedCommit": "eb07f19f52c2669f2364897aaa293e2aaddd7b1c",
+      "acceptedAt": "2026-10-30T20:23:37.606Z",
       "metadataFile": ".bamhub-sync.md",
       "roots": [
         {
