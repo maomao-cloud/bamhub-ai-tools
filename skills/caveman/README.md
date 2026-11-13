@@ -1,8 +1,8 @@
 <!-- bamhub-sync-metadata:start -->
 来源: https://github.com/JuliusBrussee/caveman.git
 跟踪引用: main
-已接受提交: b4531dfc05a3ef0ba93b57e8bfa5f48564a4b4d6
-上次成功同步: 2026-10-23T06:30:06.440Z
+已接受提交: b4ee71d557d96e3cbc14f88fa6e953a1362865f5
+上次成功同步: 2026-11-13T21:47:54.349Z
 <!-- bamhub-sync-metadata:end -->
 <!-- bamhub-sync-content:start -->
 
