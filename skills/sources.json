@@ -4,8 +4,8 @@
     "superpowers": {
       "repository": "https://github.com/obra/superpowers.git",
       "ref": "main",
-      "acceptedCommit": "2ce8aa15d05bd57213e6f746f953aafb7ded7a8b",
-      "acceptedAt": "2026-10-23T06:30:13.638Z",
+      "acceptedCommit": "22f0b463e7a5e579904dd6211a520321035526f7",
+      "acceptedAt": "2026-11-20T22:29:10.140Z",
       "roots": [
         {
           "upstream": "skills",
@@ -16,8 +16,8 @@
     "caveman": {
       "repository": "https://github.com/JuliusBrussee/caveman.git",
       "ref": "main",
-      "acceptedCommit": "b4531dfc05a3ef0ba93b57e8bfa5f48564a4b4d6",
-      "acceptedAt": "2026-10-23T06:30:06.440Z",
+      "acceptedCommit": "a192894723a8f47e7f504c7b5041967ff1f18e55",
+      "acceptedAt": "2026-11-20T22:29:08.379Z",
       "roots": [
         {
           "upstream": "skills",
@@ -28,8 +28,8 @@
     "darwin": {
       "repository": "https://github.com/alchaincyf/darwin-skill.git",
       "ref": "master",
-      "acceptedCommit": "8a8b66258e3c45d6ae4aea39719468c6428fcb0a",
-      "acceptedAt": "2026-10-23T06:50:34.921Z",
+      "acceptedCommit": "5a8e633a20ea5bb2bf8b9c697c6da04ad85740ba",
+      "acceptedAt": "2026-11-20T22:29:09.287Z",
       "metadataFile": ".bamhub-sync.md",
       "roots": [
         {
@@ -41,8 +41,8 @@
     "addyosmani-agent-skills": {
       "repository": "https://github.com/addyosmani/agent-skills.git",
       "ref": "main",
-      "acceptedCommit": "aeac41d4d005999432bb7312f7ff06383a91d59d",
-      "acceptedAt": "2026-10-23T06:29:55.364Z",
+      "acceptedCommit": "8c99fa36d90068c82d547f7c12a9d67a3e95f4ee",
+      "acceptedAt": "2026-11-20T22:29:06.014Z",
       "metadataFile": ".bamhub-sync.md",
       "roots": [
         {
